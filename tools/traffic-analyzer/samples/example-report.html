@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>flood-watch report</title>
+<style>
+ :root{--bg:#0B1220;--surface:#121C2F;--line:rgba(255,255,255,.09);--text:#E8EEF7;
+   --muted:#93A4BF;--cyan:#22D3EE;--violet:#A78BFA;--mint:#34D399;--red:#FB7185;--amber:#FBBF24;}
+ *{margin:0;padding:0;box-sizing:border-box}
+ body{background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,'Segoe UI',sans-serif;
+   line-height:1.65;padding:34px 20px 70px}
+ .wrap{max-width:1080px;margin:0 auto}
+ .brand{font-family:'JetBrains Mono',monospace;color:var(--cyan);font-size:.85rem;letter-spacing:.1em;
+   text-transform:uppercase;margin-bottom:10px}
+ h1{font-size:1.9rem;font-weight:800;letter-spacing:-.02em;margin-bottom:8px}
+ .sub{color:var(--muted);max-width:760px;margin-bottom:6px}
+ .meta{color:#6D7F9C;font-size:.85rem;margin-bottom:24px}
+ .banner{background:linear-gradient(135deg,rgba(251,113,133,.14),rgba(167,139,250,.10));
+   border:1px solid rgba(251,113,133,.35);border-radius:18px;padding:24px 26px;margin-bottom:24px}
+ .banner h2{font-size:1.2rem;margin-bottom:8px;color:#FFC9D2}
+ .banner p{color:#E3D9DE;font-size:.97rem}
+ .chips{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
+ .chip{border:1px solid;border-radius:999px;padding:4px 13px;font-size:.8rem;font-weight:700;
+   text-transform:uppercase;letter-spacing:.06em}
+ .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:14px;margin-bottom:26px}
+ .stat{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px}
+ .stat .n{font-size:1.65rem;font-weight:800;color:var(--cyan)}
+ .stat .l{color:var(--muted);font-size:.83rem}
+ h3{font-size:1.05rem;margin:26px 0 12px}
+ .panel{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px}
+ .tl{display:flex;align-items:flex-end;gap:2px;height:130px}
+ .tl i{flex:1;background:linear-gradient(180deg,var(--cyan),rgba(34,211,238,.25));border-radius:2px 2px 0 0;
+   min-width:2px;transition:opacity .2s}
+ .tl i:hover{opacity:.6}
+ .tlx{display:flex;justify-content:space-between;color:#6D7F9C;font-size:.78rem;margin-top:8px}
+ .cols{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+ .brow{display:flex;align-items:center;gap:10px;margin:7px 0;font-size:.88rem}
+ .bl{width:190px;color:var(--muted);flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .bt{flex:1;height:9px;background:rgba(255,255,255,.06);border-radius:999px;overflow:hidden}
+ .bt i{display:block;height:100%;background:linear-gradient(90deg,var(--cyan),var(--violet));border-radius:999px}
+ .bn{width:74px;text-align:right;color:var(--text);font-variant-numeric:tabular-nums}
+ table{width:100%;border-collapse:collapse;font-size:.86rem}
+ th{text-align:left;color:var(--muted);font-weight:600;padding:10px;border-bottom:1px solid var(--line);
+   font-size:.78rem;text-transform:uppercase;letter-spacing:.06em}
+ td{padding:11px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+ td.num{text-align:right;font-variant-numeric:tabular-nums}
+ td.ip{font-family:'JetBrains Mono',monospace;color:var(--text);white-space:nowrap}
+ td.region{color:var(--muted);font-size:.82rem}
+ td.why{color:var(--muted);font-size:.82rem;max-width:330px}
+ td.why ul{margin:0;padding-left:16px}
+ td.why li{margin:2px 0}
+ .pill{border:1px solid;border-radius:999px;padding:2px 10px;font-size:.72rem;font-weight:800;
+   text-transform:uppercase;letter-spacing:.05em}
+ tr.lvl-critical td{background:rgba(251,113,133,.05)}
+ tr.lvl-high td{background:rgba(251,191,36,.04)}
+ .rec{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--muted);
+   border-radius:0 14px 14px 0;padding:16px 20px;margin-bottom:12px}
+ .rec-high{border-left-color:var(--red)}
+ .rec-medium{border-left-color:var(--amber)}
+ .rec-low{border-left-color:var(--cyan)}
+ .rt{font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:10px}
+ .ru{font-size:.68rem;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--line);
+   border-radius:999px;padding:2px 9px;color:var(--muted);font-weight:700}
+ .rec p{color:var(--muted);font-size:.9rem}
+ .foot{margin-top:34px;color:#6D7F9C;font-size:.83rem;border-top:1px solid var(--line);padding-top:18px}
+ @media (max-width:820px){.cols{grid-template-columns:1fr}td.why{display:none}}
+</style></head><body><div class="wrap">
+ <div class="brand">flood-watch report</div>
+ <h1>Under attack from 146 sources</h1>
+ <p class="sub">Traffic analysis of 203.0.113.10. Every finding below was worked out from the packets
+ themselves, and every source is scored with the reasons written out.</p>
+ <p class="meta">Generated 2026-08-12 16:57:53. Capture covers 81.1 seconds.</p>
+
+ <div class="banner"><h2>What is happening</h2><p>About 98% of all traffic in this capture is hostile. There is more than one thing going on at once here: a SYN flood, which fills up the connection table so real customers cannot get in, a reflection attack bounced off DNS and NTP servers, which multiplies the attacker's bandwidth against you, a ping flood, and finally at least one host scanning your ports, which is a separate problem from the flood and worth looking at once the dust settles. It is arriving from many addresses at the same time, which is what makes it distributed, and why blocking addresses by hand as they appear will never catch up.</p>
+   <div class="chips"><span class="chip" style="color:#FB7185;border-color:#FB718555;background:#FB718514">112 critical</span><span class="chip" style="color:#FBBF24;border-color:#FBBF2455;background:#FBBF2414">34 high</span><span class="chip" style="color:#34D399;border-color:#34D39955;background:#34D39914">14 normal</span></div></div>
+
+ <div class="stats">
+  <div class="stat"><div class="n">16,470</div><div class="l">packets analysed</div></div>
+  <div class="stat"><div class="n">160</div><div class="l">sources seen</div></div>
+  <div class="stat"><div class="n">146</div><div class="l">hostile sources</div></div>
+  <div class="stat"><div class="n">98%</div><div class="l">of traffic hostile</div></div>
+  <div class="stat"><div class="n">3,206</div><div class="l">peak packets per second</div></div>
+ </div>
+
+ <h3>Traffic over time</h3>
+ <div class="panel"><div class="tl"><i style="height:2.0%" title="5 packets in this second"></i><i style="height:2.0%" title="4 packets in this second"></i><i style="height:2.0%" title="5 packets in this second"></i><i style="height:2.0%" title="5 packets in this second"></i><i style="height:2.0%" title="3 packets in this second"></i><i style="height:2.0%" title="4 packets in this second"></i><i style="height:2.0%" title="4 packets in this second"></i><i style="height:2.0%" title="4 packets in this second"></i><i style="height:2.0%" title="4 packets in this second"></i><i style="height:2.0%" title="3 packets in this second"></i><i style="height:2.0%" title="4 packets in this second"></i><i style="height:2.0%" title="4 packets in this second"></i><i style="height:2.0%" title="4 packets in this second"></i><i style="height:28.1%" title="902 packets in this second"></i><i style="height:60.1%" title="1928 packets in this second"></i><i style="height:57.8%" title="1853 packets in this second"></i><i style="height:79.5%" title="2548 packets in this second"></i><i style="height:100.0%" title="3206 packets in this second"></i><i style="height:81.8%" title="2621 packets in this second"></i><i style="height:48.8%" title="1563 packets in this second"></i><i style="height:16.3%" title="524 packets in this second"></i><i style="height:7.6%" title="245 packets in this second"></i><i style="height:4.9%" title="156 packets in this second"></i><i style="height:3.1%" title="98 packets in this second"></i><i style="height:2.0%" title="62 packets in this second"></i><i style="height:2.0%" title="56 packets in this second"></i><i style="height:2.0%" title="26 packets in this second"></i><i style="height:2.0%" title="3 packets in this second"></i><i style="height:2.0%" title="6 packets in this second"></i><i style="height:2.0%" title="5 packets in this second"></i><i style="height:2.0%" title="3 packets in this second"></i><i style="height:2.0%" title="2 packets in this second"></i><i style="height:2.4%" title="76 packets in this second"></i><i style="height:3.4%" title="109 packets in this second"></i><i style="height:4.1%" title="133 packets in this second"></i><i style="height:2.8%" title="91 packets in this second"></i><i style="height:2.0%" title="15 packets in this second"></i><i style="height:2.0%" title="5 packets in this second"></i><i style="height:2.0%" title="5 packets in this second"></i><i style="height:2.0%" title="4 packets in this second"></i><i style="height:2.0%" title="5 packets in this second"></i><i style="height:2.0%" title="3 packets in this second"></i><i style="height:2.0%" title="3 packets in this second"></i><i style="height:2.0%" title="7 packets in this second"></i><i style="height:2.0%" title="6 packets in this second"></i><i style="height:2.0%" title="8 packets in this second"></i><i style="height:2.0%" title="6 packets in this second"></i><i style="height:2.0%" title="9 packets in this second"></i><i style="height:2.0%" title="6 packets in this second"></i><i style="height:2.0%" title="4 packets in this second"></i><i style="height:2.0%" title="5 packets in this second"></i><i style="height:2.0%" title="4 packets in this second"></i><i style="height:2.0%" title="8 packets in this second"></i><i style="height:2.0%" title="5 packets in this second"></i><i style="height:2.0%" title="5 packets in this second"></i><i style="height:2.0%" title="8 packets in this second"></i><i style="height:2.0%" title="4 packets in this second"></i><i style="height:2.0%" title="4 packets in this second"></i><i style="height:2.0%" title="3 packets in this second"></i><i style="height:2.0%" title="5 packets in this second"></i><i style="height:2.0%" title="2 packets in this second"></i><i style="height:2.0%" title="5 packets in this second"></i><i style="height:2.0%" title="3 packets in this second"></i><i style="height:2.0%" title="1 packets in this second"></i><i style="height:2.0%" title="5 packets in this second"></i><i style="height:2.0%" title="2 packets in this second"></i><i style="height:2.0%" title="6 packets in this second"></i><i style="height:2.0%" title="2 packets in this second"></i><i style="height:2.0%" title="5 packets in this second"></i><i style="height:2.0%" title="3 packets in this second"></i><i style="height:2.0%" title="4 packets in this second"></i><i style="height:2.0%" title="1 packets in this second"></i><i style="height:2.0%" title="2 packets in this second"></i><i style="height:2.0%" title="3 packets in this second"></i><i style="height:2.0%" title="2 packets in this second"></i><i style="height:2.0%" title="1 packets in this second"></i><i style="height:2.0%" title="3 packets in this second"></i><i style="height:2.0%" title="2 packets in this second"></i><i style="height:2.0%" title="2 packets in this second"></i><i style="height:2.0%" title="3 packets in this second"></i><i style="height:2.0%" title="5 packets in this second"></i><i style="height:2.0%" title="2 packets in this second"></i></div>
+  <div class="tlx"><span>start of capture</span><span>peak 3,206 packets per second</span><span>end</span></div></div>
+
+ <div class="cols">
+  <div><h3>Where it came from</h3><div class="panel"><div class="brow"><span class="bl">APNIC (Asia Pacific)</span>
+              <span class="bt"><i style="width:100.0%"></i></span>
+              <span class="bn">11,208</span></div><div class="brow"><span class="bl">ARIN (North America)</span>
+              <span class="bt"><i style="width:15.4%"></i></span>
+              <span class="bn">1,730</span></div><div class="brow"><span class="bl">AFRINIC (Africa)</span>
+              <span class="bt"><i style="width:14.5%"></i></span>
+              <span class="bn">1,622</span></div><div class="brow"><span class="bl">LACNIC (Latin America)</span>
+              <span class="bt"><i style="width:11.3%"></i></span>
+              <span class="bn">1,262</span></div><div class="brow"><span class="bl">RIPE (Europe, Middle East)</span>
+              <span class="bt"><i style="width:5.8%"></i></span>
+              <span class="bn">648</span></div>
+    <p style="color:#6D7F9C;font-size:.78rem;margin-top:12px">Region comes from how the address space
+    was allocated. It is a good guide to whether traffic is coming from places your customers live,
+    not a precise location.</p></div></div>
+  <div><h3>What was targeted</h3><div class="panel"><div class="brow"><span class="bl">443 (website (secure))</span>
+              <span class="bt"><i style="width:100.0%"></i></span>
+              <span class="bn">13,944</span></div><div class="brow"><span class="bl">5432 (database)</span>
+              <span class="bt"><i style="width:0.0%"></i></span>
+              <span class="bn">4</span></div><div class="brow"><span class="bl">21</span>
+              <span class="bt"><i style="width:0.0%"></i></span>
+              <span class="bn">3</span></div><div class="brow"><span class="bl">22 (SSH remote access)</span>
+              <span class="bt"><i style="width:0.0%"></i></span>
+              <span class="bn">3</span></div><div class="brow"><span class="bl">23</span>
+              <span class="bt"><i style="width:0.0%"></i></span>
+              <span class="bn">3</span></div><div class="brow"><span class="bl">25 (mail)</span>
+              <span class="bt"><i style="width:0.0%"></i></span>
+              <span class="bn">3</span></div><div class="brow"><span class="bl">53 (DNS)</span>
+              <span class="bt"><i style="width:0.0%"></i></span>
+              <span class="bn">3</span></div><div class="brow"><span class="bl">80 (website)</span>
+              <span class="bt"><i style="width:0.0%"></i></span>
+              <span class="bn">3</span></div></div>
+   <h3>Protocols used</h3><div class="panel"><div class="brow"><span class="bl">TCP</span>
+              <span class="bt"><i style="width:100.0%"></i></span>
+              <span class="bn">14,007</span></div><div class="brow"><span class="bl">UDP</span>
+              <span class="bt"><i style="width:14.7%"></i></span>
+              <span class="bn">2,060</span></div><div class="brow"><span class="bl">ICMP</span>
+              <span class="bt"><i style="width:2.9%"></i></span>
+              <span class="bn">403</span></div></div></div>
+ </div>
+
+ <h3>Every source, scored</h3>
+ <div class="panel" style="overflow-x:auto">
+ <table><tr><th>Source</th><th>Level</th><th>Packets</th><th>Per sec</th><th>Protocol</th>
+ <th>Port</th><th>Region</th><th>Why it was flagged</th></tr>
+        <tr class="lvl-critical">
+          <td class="ip">42.107.170.113</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">199</td>
+          <td class="num">51.8</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 51 packets a second, much faster than a person browsing</li><li>opened 199 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">102.175.75.37</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">198</td>
+          <td class="num">53.7</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">AFRINIC (Africa)</td>
+          <td class="why"><ul><li>sending about 53 packets a second, much faster than a person browsing</li><li>opened 198 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">121.87.100.40</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">196</td>
+          <td class="num">56.9</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 56 packets a second, much faster than a person browsing</li><li>opened 196 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">36.232.21.18</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">194</td>
+          <td class="num">52.3</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 52 packets a second, much faster than a person browsing</li><li>opened 194 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">42.253.231.246</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">193</td>
+          <td class="num">52.3</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 52 packets a second, much faster than a person browsing</li><li>opened 193 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">186.160.147.65</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">192</td>
+          <td class="num">53.2</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">LACNIC (Latin America)</td>
+          <td class="why"><ul><li>sending about 53 packets a second, much faster than a person browsing</li><li>opened 192 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">58.80.41.209</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">189</td>
+          <td class="num">58.5</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 58 packets a second, much faster than a person browsing</li><li>opened 189 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">42.186.43.220</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">188</td>
+          <td class="num">60.0</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 60 packets a second, much faster than a person browsing</li><li>opened 188 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">118.174.201.186</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">187</td>
+          <td class="num">54.8</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 54 packets a second, much faster than a person browsing</li><li>opened 187 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">200.122.177.152</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">187</td>
+          <td class="num">54.4</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">LACNIC (Latin America)</td>
+          <td class="why"><ul><li>sending about 54 packets a second, much faster than a person browsing</li><li>opened 187 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">1.208.8.103</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">182</td>
+          <td class="num">57.2</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 57 packets a second, much faster than a person browsing</li><li>opened 182 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">177.250.169.237</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">181</td>
+          <td class="num">54.7</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">LACNIC (Latin America)</td>
+          <td class="why"><ul><li>sending about 54 packets a second, much faster than a person browsing</li><li>opened 181 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">110.5.85.129</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">180</td>
+          <td class="num">54.5</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 54 packets a second, much faster than a person browsing</li><li>opened 180 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">102.199.18.17</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">180</td>
+          <td class="num">58.7</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">AFRINIC (Africa)</td>
+          <td class="why"><ul><li>sending about 58 packets a second, much faster than a person browsing</li><li>opened 180 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">58.109.205.117</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">177</td>
+          <td class="num">52.5</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 52 packets a second, much faster than a person browsing</li><li>opened 177 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">180.210.232.242</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">176</td>
+          <td class="num">55.0</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 54 packets a second, much faster than a person browsing</li><li>opened 176 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">14.115.103.184</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">175</td>
+          <td class="num">55.4</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 55 packets a second, much faster than a person browsing</li><li>opened 175 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">14.134.82.37</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">174</td>
+          <td class="num">55.4</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 55 packets a second, much faster than a person browsing</li><li>opened 174 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">58.168.197.45</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">172</td>
+          <td class="num">57.7</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 57 packets a second, much faster than a person browsing</li><li>opened 172 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">180.206.45.178</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">170</td>
+          <td class="num">53.2</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 53 packets a second, much faster than a person browsing</li><li>opened 170 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">41.204.177.42</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">169</td>
+          <td class="num">52.7</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">AFRINIC (Africa)</td>
+          <td class="why"><ul><li>sending about 52 packets a second, much faster than a person browsing</li><li>opened 169 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">1.150.6.74</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">167</td>
+          <td class="num">54.0</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 54 packets a second, much faster than a person browsing</li><li>opened 167 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">118.133.238.143</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">166</td>
+          <td class="num">52.8</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 52 packets a second, much faster than a person browsing</li><li>opened 166 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">101.159.28.67</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">165</td>
+          <td class="num">53.4</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 53 packets a second, much faster than a person browsing</li><li>opened 165 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">14.194.59.191</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">165</td>
+          <td class="num">56.4</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 56 packets a second, much faster than a person browsing</li><li>opened 165 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">186.205.210.241</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">164</td>
+          <td class="num">56.4</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">LACNIC (Latin America)</td>
+          <td class="why"><ul><li>sending about 56 packets a second, much faster than a person browsing</li><li>opened 164 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">154.193.249.126</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">164</td>
+          <td class="num">58.5</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">AFRINIC (Africa)</td>
+          <td class="why"><ul><li>sending about 58 packets a second, much faster than a person browsing</li><li>opened 164 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">102.208.220.233</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">163</td>
+          <td class="num">57.2</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">AFRINIC (Africa)</td>
+          <td class="why"><ul><li>sending about 57 packets a second, much faster than a person browsing</li><li>opened 163 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">175.31.19.12</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">162</td>
+          <td class="num">55.6</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 55 packets a second, much faster than a person browsing</li><li>opened 162 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">42.140.221.249</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">160</td>
+          <td class="num">57.2</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 57 packets a second, much faster than a person browsing</li><li>opened 160 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">58.58.166.220</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">157</td>
+          <td class="num">50.9</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 50 packets a second, much faster than a person browsing</li><li>opened 157 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">118.122.91.151</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">156</td>
+          <td class="num">54.1</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 54 packets a second, much faster than a person browsing</li><li>opened 156 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">27.233.138.32</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">154</td>
+          <td class="num">55.5</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 55 packets a second, much faster than a person browsing</li><li>opened 154 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">1.196.169.178</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">154</td>
+          <td class="num">54.9</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 54 packets a second, much faster than a person browsing</li><li>opened 154 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">175.9.193.101</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">154</td>
+          <td class="num">54.6</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 54 packets a second, much faster than a person browsing</li><li>opened 154 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">1.109.247.171</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">154</td>
+          <td class="num">50.9</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 50 packets a second, much faster than a person browsing</li><li>opened 154 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">42.175.247.78</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">151</td>
+          <td class="num">58.2</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 58 packets a second, much faster than a person browsing</li><li>opened 151 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">110.5.157.113</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">150</td>
+          <td class="num">53.3</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 53 packets a second, much faster than a person browsing</li><li>opened 150 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">210.182.118.179</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">146</td>
+          <td class="num">56.6</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 56 packets a second, much faster than a person browsing</li><li>opened 146 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr>
+        <tr class="lvl-critical">
+          <td class="ip">42.44.245.89</td>
+          <td><span class="pill" style="background:#FB71851F;color:#FB7185;border-color:#FB718555">critical</span></td>
+          <td class="num">144</td>
+          <td class="num">56.1</td>
+          <td>TCP</td>
+          <td class="num">443</td>
+          <td class="region">APNIC (Asia Pacific)</td>
+          <td class="why"><ul><li>sending about 56 packets a second, much faster than a person browsing</li><li>opened 144 connections and never completed a single one, all against the same service, which is the signature of a SYN flood</li><li>every packet is exactly the same size, so this is generated by a tool rather than a real browser</li><li>aimed at your website (secure) (port 443)</li></ul></td>
+        </tr></table></div>
+
+ <h3>What to change</h3>
+ 
+      <div class="rec rec-high">
+        <div class="rt"><span class="ru">high</span>Turn on SYN cookies and connection rate limits</div>
+        <p>Your server is holding open thousands of half finished connections. Enabling SYN cookies lets it answer without reserving memory for each one, and a connection rate limit per address stops any single source hogging the queue. This is a configuration change, not new hardware.</p>
+      </div>
+      <div class="rec rec-high">
+        <div class="rt"><span class="ru">high</span>Put the website behind a filtering service</div>
+        <p>A service like Cloudflare absorbs this kind of flood before it reaches your line. For a small business the entry plans cost little and this is the single most effective change available.</p>
+      </div>
+      <div class="rec rec-high">
+        <div class="rt"><span class="ru">high</span>Ask your provider to filter reflected DNS, NTP traffic upstream</div>
+        <p>Reflected traffic is already using up your line before you can drop it, so filtering has to happen upstream at your internet provider. Send them the source list from this report and ask for a filter on that traffic.</p>
+      </div>
+      <div class="rec rec-medium">
+        <div class="rt"><span class="ru">medium</span>Check that none of your own servers can be used this way</div>
+        <p>The same services being abused against you (DNS, NTP) are often left open on other people's networks by accident. Any of these running on your side should only answer to your own addresses, never to the whole internet.</p>
+      </div>
+      <div class="rec rec-low">
+        <div class="rt"><span class="ru">low</span>Rate limit ping traffic</div>
+        <p>Ping is useful for diagnostics, so rather than blocking it completely, limit it to a few packets a second. That keeps it working for you and useless for them.</p>
+      </div>
+      <div class="rec rec-medium">
+        <div class="rt"><span class="ru">medium</span>Look at what the scanner found, not just that it scanned</div>
+        <p>One host walked across your ports looking for a way in. Scanning is constant background noise on the internet, so the useful question is what it would have found. Anything answering that does not need to face the internet should be closed or moved behind a VPN.</p>
+      </div>
+      <div class="rec rec-medium">
+        <div class="rt"><span class="ru">medium</span>Consider limiting traffic from APNIC (Asia Pacific) while the attack is running</div>
+        <p>Most of the hostile traffic was allocated in APNIC (Asia Pacific). If your customers are not there, a temporary geographic limit is a quick way to cut the volume. Check your real customer list first, and treat it as a temporary measure rather than a permanent policy.</p>
+      </div>
+      <div class="rec rec-low">
+        <div class="rt"><span class="ru">low</span>Write down what normal looks like</div>
+        <p>The reason this analysis works is that we can compare against ordinary traffic. Keeping a baseline of your typical packet rates and busiest hours means the next incident gets diagnosed in minutes instead of hours.</p>
+      </div>
+      <div class="rec rec-low">
+        <div class="rt"><span class="ru">low</span>Agree who calls the provider, before the next time</div>
+        <p>In an attack, most of the delay is not technical. It is working out who is allowed to phone the internet provider and authorise emergency filtering. Decide that now and write the number on the emergency sheet.</p>
+      </div>
+
+ <div class="foot">Produced by flood-watch, a free tool from Plaintext IT. The analysis runs entirely
+ on your own machine and nothing about your network is sent anywhere.</div>
+</div></body></html>

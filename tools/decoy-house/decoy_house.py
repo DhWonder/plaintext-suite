@@ -29,7 +29,10 @@ USAGE
 OPTIONS
 
   --ports N [N ...]   which ports the sensor listens on. Ports under 1024 (like
-                      22 and 80, the ones attackers actually try) need sudo.
+                      22 and 80, the ones attackers actually try) need sudo. A
+                      port something else already holds is reported and skipped,
+                      so check the startup lines. Do not move sshd off 22 to
+                      make room while that is how you reach the machine.
   --console URL       where this sensor reports. Without it, the sensor still
                       records everything locally.
   --name NAME         a name for this sensor, so the console can tell them apart

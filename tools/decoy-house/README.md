@@ -14,6 +14,31 @@ python3 decoy_house.py console --open
 python3 decoy_house.py report
 ```
 
+## Before you use port 22
+
+Ports below 1024 need sudo, which is why that first line has it. The catch is
+that most machines already have something on 22 and 80. If sshd is on 22, the
+sensor cannot have it: you get `could not open port 22: Address already in use`,
+that port is skipped, and the sensor carries on with the others. It does not
+stop, so read the startup lines and check every port you asked for actually
+opened.
+
+If you are logged into the machine over SSH, think before you free up 22. Moving
+sshd to another port to make room is how people lock themselves out of a remote
+box. Get the new port working in a second terminal, and confirm the firewall
+allows it, before you close the session you are already in.
+
+The easy version is a machine with nothing else on it, where the honeypot can
+have the real ports. Failing that, high ports work fine:
+
+```
+python3 decoy_house.py sensor --ports 2222 8080
+```
+
+You catch fewer bored internet scanners that way, since they mostly try 22 and
+80. Inside an office network it makes little difference: anything touching the
+sensor at all is the thing you wanted to know about.
+
 ## Two parts
 
 **The sensor** is the honeypot itself, run on a machine you want to watch. It

@@ -12,7 +12,7 @@ limitations written down.
 | Tool | Language | What it does |
 |------|----------|--------------|
 | [traffic-analyzer](tools/traffic-analyzer) | Python | Reads a network capture and works out who is flooding you, how, and what to change. |
-| [decoy-door](tools/decoy-door) | Python | A fake door for your network that writes down who rattles the handle. |
+| [decoy-house](tools/decoy-house) | Python | A machine that looks worth breaking into, and tells on whoever does. Honeypot plus a console. |
 | [email-checker](tools/email-checker) | Python | Everything about one suspicious email, explained. Runs offline. |
 | [domain-checker](tools/domain-checker) | Python | Can a criminal send email pretending to be this business? (SPF/DMARC) |
 | [backup-checker](tools/backup-checker) | shell | Verifies backups actually ran, and that they can actually restore. |

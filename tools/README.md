@@ -13,7 +13,7 @@ things on.
 | **traffic-analyzer** | Is somebody attacking this network, and are my sites up with valid certificates? Reads captures, watches a card live, checks websites. |
 | **email-checker** | Is this message a scam, is this password weak or already stolen, and is the attachment safe to open? |
 | **domain-checker** | Could somebody send email pretending to be this business? Checks SPF, DKIM and DMARC. |
-| **decoy-door** | Who is poking around inside the network? Opens a door nothing legitimate uses and writes down who knocks. |
+| **decoy-house** | Who is poking around inside the network? Puts up a machine worth breaking into, then records everything they do to it and what bait they take. |
 | **backup-checker** | Did the backup run, and would a restore actually work? Includes a drill that pulls a real file back. |
 | **system-checker** | A read only look over a Linux machine: updates, accounts, what is listening. Written in C. |
 

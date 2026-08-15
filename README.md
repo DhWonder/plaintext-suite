@@ -2,8 +2,11 @@
 
 Security tools that read, explain, and do not guess.
 
-Small tools for small businesses. Each one does a single job, runs on its own without
-a service behind it, and says what it found in plain English — including when the
+## Still a work in progress 
+
+
+Small tools for small businesses. Each one does a specific job, runs on its own without
+a service behind it, and says what it found in plain English including when the
 honest answer is "I cannot tell you that." Every tool has its own README with its
 limitations written down.
 
@@ -35,4 +38,4 @@ README has the exact command. `system-checker` builds with `make`.
 
 ## License
 
-MIT, all of it. Use it, change it, ship it — no strings.
+MIT, all of it. Use it, change it, ship it no strings.

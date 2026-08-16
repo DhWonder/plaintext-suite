@@ -91,6 +91,59 @@ It will not touch an attacker's machine. Following someone by breaking into
 their computer is illegal wherever you are, and it is not what this is for. If
 that is what you were hoping for, this is the wrong tool, on purpose.
 
+## Running it on a cloud instance
+
+A honeypot belongs on a machine you would not mind losing, which usually means a
+small cloud instance rather than the computer you work on. Nothing here needs
+installing: it is standard library Python 3.7 or newer, so a stock Amazon Linux
+or Ubuntu image runs it as it comes. The smallest instance any provider sells is
+enough, because all it does is hold open sockets and write to SQLite.
+
+The notes below say AWS because that is what most people use, but nothing in the
+tool is AWS specific and the same points apply anywhere.
+
+**Do not take port 22 on your first run.** On an instance, sshd on 22 is the only
+way you get in, and the earlier warning about moving it applies with the added
+problem that there is no keyboard to fall back to. Start high:
+
+```
+python3 decoy_house.py sensor --ports 2222 8080
+```
+
+When you do want the real ports, move sshd first, open its new port in the
+security group, and log in on it in a second terminal before you close the
+session you already have.
+
+**Open the honeypot ports to the internet, not to yourself.** Scanners have to be
+able to reach them, so those ports want `0.0.0.0/0` in the security group. Keep
+the port you actually administer the box on restricted to your own address.
+
+**Attach no IAM role.** This is the one that is easy to miss. The sensor never
+runs what an attacker types, so the fake shell is not the risk. The risk is that
+any instance carrying a role will hand out credentials for it to anything that
+can reach the metadata service, so a real compromise through some other route
+turns into a compromise of whatever that role can touch. Give the instance no
+instance profile at all, and require IMDSv2. A honeypot has no business holding
+credentials for anything.
+
+**Keep the console off the exposed machine.** It listens on localhost for a
+reason. Leave it there and reach it through a tunnel from your own computer:
+
+```
+ssh -L 8770:127.0.0.1:8770 you@your-sensor
+```
+
+Then open `http://127.0.0.1:8770`. Better still, run the console on a separate
+private instance and point every sensor at it with `--console`.
+
+A static address (an Elastic IP on AWS) is worth the small cost. Without one the
+machine changes address every time it stops, which breaks your security group
+rules and makes the console look like it has gained a new sensor.
+
+Treat the whole instance as untrusted, because that is the job you gave it. Put
+nothing else on it, and if you ever have reason to doubt it, destroy it and
+build another. That is the advantage of running it somewhere disposable.
+
 ## Where it fits
 
 Inside an office network a sensor is a tripwire: nothing should ever touch it,

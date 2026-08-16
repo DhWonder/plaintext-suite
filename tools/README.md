@@ -11,7 +11,7 @@ things on.
 | Tool | Answers |
 |---|---|
 | **traffic-analyzer** | Is somebody attacking this network, and are my sites up with valid certificates? Reads captures, watches a card live, checks websites. |
-| **email-checker** | Is this message a scam, is this password weak or already stolen, and is the attachment safe to open? |
+| **email-checker** | Somebody forwards you a message and asks "is this real?". One verdict covering the wording, the attachments, and whether the sender's domain can be forged. Reads `.eml` through to Outlook `.msg`, and never uploads the message. |
 | **domain-checker** | Could somebody send email pretending to be this business? Checks SPF, DKIM and DMARC. |
 | **decoy-house** | Who is poking around inside the network? Puts up a machine worth breaking into, then records everything they do to it and what bait they take. |
 | **backup-checker** | Did the backup run, and would a restore actually work? Includes a drill that pulls a real file back. |

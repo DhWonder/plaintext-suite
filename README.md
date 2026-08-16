@@ -16,7 +16,7 @@ limitations written down.
 |------|----------|--------------|
 | [traffic-analyzer](tools/traffic-analyzer) | Python | Reads a network capture and works out who is flooding you, how, and what to change. |
 | [decoy-house](tools/decoy-house) | Python | A machine that looks worth breaking into, and tells on whoever does. Honeypot plus a console. |
-| [email-checker](tools/email-checker) | Python | Everything about one suspicious email, explained. Runs offline. |
+| [email-checker](tools/email-checker) | Python | Is this email a scam? One verdict on the wording, the attachments, and whether the sender's domain can be forged. The message is never uploaded. |
 | [domain-checker](tools/domain-checker) | Python | Can a criminal send email pretending to be this business? (SPF/DMARC) |
 | [backup-checker](tools/backup-checker) | shell | Verifies backups actually ran, and that they can actually restore. |
 | [system-checker](tools/system-checker) | C | A read-only health and security look-over of a Linux machine. |

@@ -1,5 +1,11 @@
 # accounts-checker
 
+> **Retired.** This tool is now part of [`email-checker`](../../tools/email-checker),
+> along with `file-checker`. Everything below still works, but the password check,
+> the breach lookup and the scam wording checks all live there now, next to the
+> attachment and sender domain checks, so one message gets one answer. Use that
+> instead. This is kept because the code is still worth reading.
+
 Can this account, or this message, be trusted?
 
 Three questions that come up constantly in small businesses, answered by one

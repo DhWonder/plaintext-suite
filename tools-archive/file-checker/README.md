@@ -1,5 +1,11 @@
 # file-checker
 
+> **Retired.** This tool is now part of [`email-checker`](../../tools/email-checker),
+> along with `accounts-checker`. Everything below still works, but the attachment
+> inspection lives there now, next to the scam wording and sender domain checks, so
+> one message gets one answer. Use that instead. This is kept because the code is
+> still worth reading.
+
 Is this attachment safe to open?
 
 Point it at a saved email and it pulls out the attachments, looks inside each

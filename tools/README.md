@@ -11,15 +11,17 @@ things on.
 | Tool | Answers |
 |---|---|
 | **traffic-analyzer** | Is somebody attacking this network, and are my sites up with valid certificates? Reads captures, watches a card live, checks websites. |
-| **email-checker** | Somebody forwards you a message and asks "is this real?". One verdict covering the wording, the attachments, and whether the sender's domain can be forged. Reads `.eml` through to Outlook `.msg`, and never uploads the message. |
+| **email-checker** | Somebody forwards you a message and asks "is this real?". Is the wording a scam, is the attachment safe to open, can the sender's domain be forged, and separately, is this password weak or this address already in a breach? Everything `accounts-checker` and `file-checker` used to answer, in one verdict. Reads `.eml` through to Outlook `.msg`, and the message never leaves the machine. |
 | **domain-checker** | Could somebody send email pretending to be this business? Checks SPF, DKIM and DMARC. |
 | **decoy-house** | Who is poking around inside the network? Puts up a machine worth breaking into, then records everything they do to it and what bait they take. |
 | **backup-checker** | Did the backup run, and would a restore actually work? Includes a drill that pulls a real file back. |
 | **system-checker** | A read only look over a Linux machine: updates, accounts, what is listening. Written in C. |
 
-Two earlier tools, `accounts-checker` and `file-checker`, now live in
-[`../tools-archive`](../tools-archive). `email-checker` does both their jobs
-better, but the code is still worth reading.
+The two tools that became `email-checker` now live in
+[`../tools-archive`](../tools-archive): `accounts-checker` for passwords, breaches
+and scam wording, `file-checker` for attachments. Answering one question used to
+mean running both and holding two answers in your head. The code is still worth
+reading, but there is no reason to run them.
 
 ## The rule they all follow
 

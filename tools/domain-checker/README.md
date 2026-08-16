@@ -40,7 +40,25 @@ python3 domain_checker.py acme-bakery.com
 
 It reads public DNS records over an encrypted DNS-over-HTTPS request, so it works
 on any machine with internet and needs nothing installed. It only reads public
-information — nothing private, nothing sent anywhere about you.
+information — nothing private, and nothing about you goes anywhere, unless you
+ask it to email you the answer.
+
+## Checking it again, forever
+
+A domain that is protected today can stop being protected the day somebody edits
+DNS, moves mail provider, or "tidies up" a record nobody understood. Nothing
+announces it. The first sign is a customer paying a fake invoice.
+
+```
+python3 domain_checker.py notify setup     write ~/.plaintext/notify.conf
+python3 domain_checker.py notify test      prove it can actually send
+0 7 * * 1 python3 /path/to/domain_checker.py acme-bakery.com --notify
+```
+
+You hear from it only when the answer is bad — exposed, or half finished. A
+protected domain sends nothing, week after week, until the week it matters.
+[`../notifications`](../notifications) has the settings and what ends up in the
+message.
 
 ## Honest limitations
 

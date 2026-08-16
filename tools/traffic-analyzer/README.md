@@ -44,7 +44,7 @@ two and a half seconds while the page stays usable.
 
 ---
 
-## The four things it does
+## The five things it does
 
 **Read a capture.**
 
@@ -77,6 +77,35 @@ python3 traffic_analyzer.py watch --open           and open the browser for me
 python3 traffic_analyzer.py sessions      list everything in the database
 python3 traffic_analyzer.py show 3        print that session's report again
 ```
+
+**Be told, rather than watching.** Both the live capture and the site check can
+email you, which is the point of leaving either one running.
+
+```
+python3 traffic_analyzer.py notify setup           write ~/.plaintext/notify.conf
+python3 traffic_analyzer.py notify test            prove it can actually send
+sudo python3 traffic_analyzer.py live eth0 --notify
+sudo python3 traffic_analyzer.py watch --live eth0 --notify
+python3 traffic_analyzer.py sites clients.txt --notify
+```
+
+From the capture: one email listing everything that turned hostile in the same
+moment, then quiet about those addresses for fifteen minutes. Twenty machines
+in a botnet arriving together are one email, not twenty.
+
+From the site check: one email for every site that is down or whose certificate
+has expired or is about to. A site that is merely slow does not email — that is
+worth knowing at nine in the morning, not at three. A site that is down repeats
+every six hours; a certificate quietly running out repeats once a day, so a
+`sites` check in cron is a thing you can leave alone for a year:
+
+```
+*/15 * * * * python3 /path/to/traffic_analyzer.py sites /etc/clients.txt --notify --save
+```
+
+The full picture stays where it always was, in the report and the database.
+[`../notifications`](../notifications) has the settings, the limits, and what
+ends up in the message.
 
 ---
 
@@ -170,8 +199,10 @@ accident. Binding it anywhere else takes an explicit `--host` and prints a warni
   tracking them individually and groups the rest by network. The totals stay exact and
   the report says the cap was hit. A number that quietly stopped being exact is worse
   than no number.
-- **It reads. It does not scan, block or change anything**, and it never contacts
-  anyone about what it found.
+- **It reads. It does not scan, block or change anything.** It contacts nobody
+  about what it found, with one exception you have to switch on yourself: with
+  `--notify` it emails you, through your mail server, at your address. Nothing
+  is ever sent to me, to a service, or to anybody else.
 
 ---
 
@@ -186,6 +217,7 @@ floodwatch/
   live.py                   live capture, rolling state, the alert log
   server.py                 the local web server and JSON API
   report.py                 the terminal report and the HTML dashboard
+  notify.py                 the notification email, shared with the other tools
 tests/
   make_test_captures.py     builds a capture in every supported shape
   test_capture.py           proves the reader handles all of them

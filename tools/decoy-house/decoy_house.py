@@ -26,6 +26,11 @@ USAGE
   See what has happened, from the command line
       python3 decoy_house.py report
 
+  Get an email when somebody touches a sensor, or takes the bait
+      python3 decoy_house.py notify setup     write the settings file
+      python3 decoy_house.py notify test      prove it can send
+      python3 decoy_house.py console --notify
+
 OPTIONS
 
   --ports N [N ...]   which ports the sensor listens on. Ports under 1024 (like
@@ -41,6 +46,19 @@ OPTIONS
   --host ADDRESS      what the console listens on (default 127.0.0.1, leave it)
   --port N            the console's port (default 8770)
   --open              open the console in a browser
+  --notify            email you when a sensor is connected to and when a
+                      canary token fires. Console only, and off unless you
+                      pass it. Needs ~/.plaintext/notify.conf, which
+                      `notify setup` writes for you.
+  --notify-config FILE  use a different settings file than the default
+
+WHY ONLY THE CONSOLE SENDS MAIL
+
+  The sensor is a machine you have decided to treat as untrusted, and the
+  README tells you to give it no credentials for anything. A mail password
+  sitting on it would be exactly the thing an attacker who got in another way
+  would take. So the sensors report inward to the console, and the console,
+  which lives somewhere you do trust, is what emails you.
 
 SAFE BY DESIGN
 
@@ -69,6 +87,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from decoyhouse import notify
 from decoyhouse import store as store_module
 
 
@@ -87,11 +106,15 @@ def main():
         return run_console(options)
     if command in ("report", "sessions"):
         return run_report(options)
+    if command == "notify":
+        # Same settings, same commands, as every other tool in the suite.
+        return notify.main(positional[1:] or ["show"])
 
     print("I do not know that command. Try:")
     print("  python3 decoy_house.py sensor --ports 2222 8080")
     print("  python3 decoy_house.py console")
     print("  python3 decoy_house.py report")
+    print("  python3 decoy_house.py notify test")
     return 2
 
 
@@ -108,7 +131,8 @@ def parse_options(args):
                 index += 1
             options["ports"] = ports
             continue
-        if item in ("--console", "--name", "--db", "--log", "--host", "--port"):
+        if item in ("--console", "--name", "--db", "--log", "--host", "--port",
+                    "--notify-config"):
             options[item.lstrip("-")] = args[index + 1] if index + 1 < len(args) else ""
             index += 2
             continue
@@ -131,6 +155,16 @@ def run_sensor(options):
         print("Ports %s need administrator rights. Either run with sudo, or use high"
               % ", ".join(str(p) for p in low))
         print("ports like 2222 and 8080, which port scanners check anyway.")
+        return 2
+
+    if options.get("notify"):
+        # Better to refuse clearly than to accept the flag and send nothing.
+        print("The sensor does not send email, on purpose. This machine is the one you")
+        print("have decided to treat as untrusted, so it holds no mail password. Run")
+        print("the console with --notify instead, and point this sensor at it:")
+        print("  python3 decoy_house.py console --notify")
+        print("  python3 decoy_house.py sensor --ports %s --console http://your-console:8770"
+              % " ".join(str(p) for p in ports))
         return 2
 
     sensor = Sensor(name=options.get("name", ""), console=options.get("console", ""),
@@ -164,6 +198,10 @@ def run_console(options):
     port = int(options.get("port") or 8770)
     ui = find_ui()
 
+    notifier, said = notify.from_options("decoy-house", options)
+    if said:
+        print(said.strip())
+
     if options.get("open"):
         try:
             import webbrowser
@@ -173,7 +211,7 @@ def run_console(options):
         except Exception:
             pass
 
-    console_module.serve(db_path, host=host, port=port, ui_path=ui)
+    console_module.serve(db_path, host=host, port=port, ui_path=ui, notifier=notifier)
     return 0
 
 

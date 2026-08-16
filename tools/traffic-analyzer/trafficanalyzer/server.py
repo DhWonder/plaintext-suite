@@ -49,7 +49,8 @@ def find_ui():
 class State(object):
     """Everything the request handlers need, in one place."""
 
-    def __init__(self, db_path, ui_path=None, allow_live=True, monitor=None):
+    def __init__(self, db_path, ui_path=None, allow_live=True, monitor=None,
+                 notifier=None):
         # A capture may already be running, started before the server came up.
         # In that case share its database handle rather than opening a second.
         self.store = monitor.store if monitor is not None and monitor.store else \
@@ -58,6 +59,10 @@ class State(object):
         self.ui_path = ui_path or find_ui()
         self.allow_live = allow_live
         self.monitor = monitor
+        # A capture started from the browser should email you the same way one
+        # started from the command line does, so the notifier is held here and
+        # handed to every monitor this server creates.
+        self.notifier = notifier
         self.lock = threading.Lock()
 
     # -- live control ---------------------------------------------------
@@ -66,7 +71,8 @@ class State(object):
             if self.monitor is not None and self.monitor.running:
                 return {"ok": False, "error": "A live capture is already running."}
             monitor = live.LiveMonitor(interface, store=self.store,
-                                       log_path=log_path, note=note)
+                                       log_path=log_path, note=note,
+                                       notifier=self.notifier)
             monitor.start_background()
             self.monitor = monitor
 
@@ -316,8 +322,9 @@ def first(query, key, default=None):
 
 
 def serve(db_path, host="127.0.0.1", port=8724, ui_path=None, allow_live=True,
-          open_browser=False, monitor=None):
-    state = State(db_path, ui_path=ui_path, allow_live=allow_live, monitor=monitor)
+          open_browser=False, monitor=None, notifier=None):
+    state = State(db_path, ui_path=ui_path, allow_live=allow_live, monitor=monitor,
+                  notifier=notifier)
 
     handler = type("BoundHandler", (Handler,), {"state": state})
     httpd = ThreadingHTTPServer((host, port), handler)

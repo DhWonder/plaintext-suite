@@ -24,6 +24,11 @@ USAGE
       python3 email_checker.py serve                  then open the address shown
       python3 email_checker.py serve --open           and open it for me
 
+  Get an email when a check finds something, which is how you run it from cron:
+      python3 email_checker.py notify setup           write the settings file
+      python3 email_checker.py notify test            prove it can send
+      python3 email_checker.py breach you@example.com --yes --notify
+
 FORMATS IT READS
 
   .eml   .emlx (Apple Mail)   .mbox (a whole folder)   .msg (Outlook)
@@ -41,6 +46,11 @@ OPTIONS
                    handing to somebody else
   --json FILE      also write the findings as JSON
   --yes            skip the confirmation before a breach lookup sends an address
+  --notify         email you the answer, but only when there is something to
+                   say: the address is in a breach, or the password is in the
+                   leaked set. Works with `breach` and `password`. Off unless
+                   you pass it, and it needs ~/.plaintext/notify.conf.
+  --notify-config FILE  use a different settings file than the default
 
 OPTIONS FOR serve
 
@@ -57,6 +67,11 @@ WHAT LEAVES YOUR COMPUTER
   attachment (for the malware databases), the sender's domain name (for the DNS
   check), and an address you explicitly ask to look up in the breach data.
 
+  With --notify there is one more: the notification itself, sent to the address
+  in your own settings file, through your own mail server. It carries the
+  verdict and the names of the breaches. It never carries a password you typed,
+  and it never carries anything from an email you were checking.
+
 Written by DhWonder for Plaintext IT. MIT licensed.
 """
 
@@ -67,7 +82,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from emailchecker import analyze, breach, passwords, read, report
+from emailchecker import analyze, breach, notify, passwords, read, report
 
 
 def main():
@@ -85,6 +100,9 @@ def main():
         return do_breach(positional[1:], options)
     if command == "serve":
         return do_serve(options)
+    if command == "notify":
+        # Same settings, same commands, as every other tool in the suite.
+        return notify.main(positional[1:] or ["show"])
 
     # Otherwise it is an email: a file, or "-" for pasted text on stdin.
     return do_email(positional, options)
@@ -92,7 +110,7 @@ def main():
 
 def parse_options(args):
     takes_value = {"--vt-key", "--mb-key", "--hibp-key", "--save-to", "--json",
-                   "--port", "--host", "--ui"}
+                   "--port", "--host", "--ui", "--notify-config"}
     options, positional = {}, []
     index = 0
     while index < len(args):
@@ -200,7 +218,43 @@ def do_password(options):
     report.render_password(notes, good, guess_time,
                            breach_count=count, breach_note=note, offline=offline)
     del secret
+
+    if count and options.get("notify"):
+        notify_password(count, guess_time, options)
+
     return 1 if (count or penalty >= 3) else 0
+
+
+def notify_password(count, guess_time, options):
+    """Email that the password is in the leaked set, without ever sending it.
+
+    The password itself does not go anywhere: not to the breach lookup, which
+    only ever sees five characters of a fingerprint, and not into this email,
+    which says how often it has been seen and nothing more. An email you would
+    not want intercepted is not an email this tool is going to write.
+    """
+    notifier, said = notify.from_options("email-checker", options)
+    if said:
+        print(said)
+    if not notifier.available:
+        print()
+        return
+    lines = [
+        "The password you just checked appears in published breach data.",
+        "",
+        "It has been seen %s time(s) in the leaked password sets. That means it" % "{:,}".format(count),
+        "is in the lists attackers try first, so it is not a password any more,",
+        "whatever it looks like. Change it anywhere it is used, and do not use a",
+        "variation of it.",
+        "",
+        # guess_time already reads like "about four hours", so no "about" here.
+        "A machine guessing offline would take %s to reach it." % guess_time,
+        "",
+        "The password itself was not sent to anyone, and is not in this email.",
+    ]
+    result = notifier.send("a password you checked is in the leaked set", lines)
+    print("  %s" % result.detail)
+    print()
 
 
 def do_breach(positional, options):
@@ -234,7 +288,48 @@ def do_breach(positional, options):
         with open(options["json"], "w", encoding="utf-8") as fh:
             json.dump(result, fh, indent=1, default=str)
         print("  Written to %s\n" % options["json"])
+
+    if result["breaches"] and options.get("notify"):
+        notify_breach(address, result, options)
+
     return 1 if result["breaches"] else 0
+
+
+def notify_breach(address, result, options):
+    """Email the breach verdict, which is what makes this worth a monthly cron.
+
+    Only when something was found. A clean answer arriving by email every month
+    trains you to delete it unread, and then the one that matters gets deleted
+    unread too.
+    """
+    notifier, said = notify.from_options("email-checker", options)
+    if said:
+        print(said)
+    if not notifier.available:
+        print()
+        return
+
+    headline, explanation = result["verdict"]
+    lines = ["%s: %s" % (address, headline), ""]
+    lines.extend(report.wrap(explanation, 72))
+    lines.append("")
+    lines.append("Where it turned up:")
+    for name in result["breaches"][:20]:
+        lines.append("  %s" % name)
+    if len(result["breaches"]) > 20:
+        lines.append("  and %d more" % (len(result["breaches"]) - 20))
+    if result.get("exposed_types"):
+        lines.append("")
+        lines.append("What was exposed: %s" % ", ".join(result["exposed_types"][:12]))
+    lines.append("")
+    lines.append("Asked of %d source(s), %d answered."
+                 % (result["asked"], result["answered"]))
+
+    result_of_send = notifier.send(
+        "%s is in %d breach(es)" % (address, len(result["breaches"])),
+        lines, key="breach:%s" % address, gap_seconds=6 * 3600)
+    print("  %s" % result_of_send.detail)
+    print()
 
 
 def do_serve(options):

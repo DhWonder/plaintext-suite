@@ -83,7 +83,38 @@ on rather than a thing that gets you arrested.
   nothing on the real disk.
 - **The console only ever receives.** Sensors report to it; it never sends a
   command back to anything. Reports flow one way, inward. It binds to localhost
-  unless you force it otherwise, and warns you if you do.
+  unless you force it otherwise, and warns you if you do. The single thing it
+  can send is a notification email to you, and only if you ask for it — see
+  below.
+
+## Being told, instead of checking
+
+A honeypot you have to remember to look at is a honeypot you will look at three
+times and then forget. The console can email you instead:
+
+```
+python3 decoy_house.py notify setup      write ~/.plaintext/notify.conf
+python3 decoy_house.py notify test       prove it can actually send
+python3 decoy_house.py console --notify
+```
+
+Two things get an email. **Somebody connected to a sensor**, with what they
+typed, the logins they tried and the bait they read — once per address per
+sensor per hour, because a scanner knocking two hundred times is one fact.
+And **a canary token was used**, which is the one worth getting out of bed for:
+it means a fake credential left the honeypot and somebody tried it somewhere
+else.
+
+**The sensors never send mail, and that is deliberate.** The sensor runs on a
+machine you have decided to treat as untrusted, which is why this README tells
+you to give it no cloud credentials either. A mail password sitting on it would
+be exactly what an attacker who got in some other way would take. So the
+sensors report inward to the console, and the console — which lives somewhere
+you do trust — is what emails you. `sensor --notify` refuses and says this,
+rather than accepting the flag and sending nothing.
+
+[`../notifications`](../notifications) has the settings and what ends up in the
+message.
 
 ## What this will not do
 

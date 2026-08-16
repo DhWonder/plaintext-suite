@@ -50,6 +50,29 @@ cc -ansi -pedantic -Wall -Wextra -o plain-check plain-check.c
 The exit code is 0 (healthy), 1 (worth a look) or 2 (real risk found), so you can
 run it from a script and only get emailed when something needs attention.
 
+## Getting emailed when something needs attention
+
+That script is included, because "run it from cron and cron will email you" has
+not been true on a stock server for years:
+
+```
+sh plain-check-notify.sh notify setup    write ~/.plaintext/notify.conf
+sh plain-check-notify.sh notify test     prove it can actually send
+sh plain-check-notify.sh                 run the check, email if anything is wrong
+sh plain-check-notify.sh --always        email even when the machine is fine
+
+0 8 * * 1 sh /path/to/plain-check-notify.sh
+```
+
+It runs `plain-check`, prints exactly what plain-check printed, and emails you
+that same text when the exit code is 1 or 2. A healthy machine sends nothing.
+
+The C program is untouched by any of this, deliberately. Teaching it to speak
+SMTP would put a second copy of that logic in a second language, and then two
+tools in this suite could disagree about what they sent. It reads, it prints, it
+exits with a number; the wrapper does the rest, using the same `notify.py` every
+other tool here uses. See [`../notifications`](../notifications).
+
 ## Honest limitations
 
 - Linux only (it reads /proc and /etc directly). The port and account checks

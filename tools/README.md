@@ -15,7 +15,7 @@ things on.
 | **domain-checker** | Could somebody send email pretending to be this business? Checks SPF, DKIM and DMARC. |
 | **decoy-house** | Who is poking around inside the network? Puts up a machine worth breaking into, then records everything they do to it and what bait they take. |
 | **backup-checker** | Did the backup run, and would a restore actually work? Includes a drill that pulls a real file back. |
-| **system-checker** | A read only look over a Linux machine: updates, accounts, what is listening. Written in C. |
+| **system-checker** | A read only look over a Linux machine: updates, accounts, what is listening. Written in C, with a shell wrapper that emails you the report when it finds something. |
 
 The two tools that became `email-checker` now live in
 [`../tools-archive`](../tools-archive): `accounts-checker` for passwords, breaches
@@ -31,5 +31,19 @@ Where nothing leaves, the code showing that is short enough to read.
 
 None of them scan anybody. They read files you already have, listen to a card
 you own, or ask a public record the same question a browser asks.
+
+## Being told about it
+
+Every one of them can email you when it finds something: an attack in progress,
+a website down or a certificate about to expire, somebody in the honeypot, a
+canary token used, an address in a breach, a domain that can be forged, a backup
+that has stopped, a machine with a problem on it. It is off until you configure
+it and pass `--notify`, it goes through your own mail server to your own address,
+and the email carries what the tool would have printed on screen and nothing
+else. [`notifications/`](notifications) is the whole story: how to set it up,
+what is in the email, and how it avoids becoming the noise you learn to ignore.
+
+This is the one part of the suite that sends rather than reads, so it is worth
+reading before you switch it on rather than after.
 
 MIT licensed, all of them.

@@ -20,6 +20,12 @@ limitations written down.
 | [backup-checker](tools/backup-checker) | shell | Verifies backups actually ran, and that they can actually restore. |
 | [system-checker](tools/system-checker) | C | A read-only health and security look-over of a Linux machine. |
 
+All six can email you when they find something, which is the difference between
+a tool that answers a question and one that watches for you. It is off
+until you set it up and ask for it, it goes through your own mail server, and
+[`tools/notifications`](tools/notifications) says exactly what ends up in the
+message. That is the only part of the suite that sends anything anywhere.
+
 Start with **traffic-analyzer**. It parses capture files by hand, tells a SYN flood
 apart from a port scan, spots reflection attacks, and finishes with recommendations
 you can act on.

@@ -15,18 +15,33 @@ high-value win.
 
 Usage:
     python3 domain_checker.py example.com
+    python3 domain_checker.py example.com --notify
 
 It looks up public DNS records using an encrypted DNS-over-HTTPS request
 to a public resolver, so it works on any machine with internet and needs
 nothing installed. It only reads public records - nothing private.
 
+With --notify it emails you when the answer is bad, which is the point of
+running it from cron once a week: a domain that was protected can stop being
+protected when somebody edits DNS, and nobody notices until the fake invoices
+start. It stays quiet when the answer is good. Settings live in
+~/.plaintext/notify.conf; write an example with:
+
+    python3 domain_checker.py notify setup
+    python3 domain_checker.py notify test
+
 DhWonder, Plaintext IT - MIT license.
 """
 
 import json
+import os
 import sys
 import urllib.parse
 import urllib.request
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import notify
 
 # A public DNS-over-HTTPS resolver. We ask it, over HTTPS, "what TXT
 # records does this domain have?" - the same public info any mail server
@@ -115,12 +130,56 @@ def line(status, label, msg):
     print("  [%-7s] %s: %s" % (tag, label, msg))
 
 
+def parse_options(args):
+    """Pull the --flags out. Everything else is the domain."""
+    options, positional = {}, []
+    index = 0
+    while index < len(args):
+        item = args[index]
+        if item == "--notify-config":
+            options["notify-config"] = args[index + 1] if index + 1 < len(args) else ""
+            index += 2
+            continue
+        if item.startswith("--"):
+            options[item.lstrip("-")] = True
+            index += 1
+            continue
+        positional.append(item)
+        index += 1
+    return options, positional
+
+
+def tell_them(domain, verdict, lines, options):
+    """Email the verdict, when it is a verdict worth an email.
+
+    Keyed on the domain with a six hour quiet period, so a cron job running
+    hourly on a broken domain sends you four emails a day rather than
+    twenty-four, and a weekly one still always sends.
+    """
+    notifier, said = notify.from_options("domain-checker", options)
+    if said:
+        print()
+        print(said)
+    if not notifier.available:
+        return
+    result = notifier.send("%s can be forged: %s" % (domain, verdict), lines,
+                           key="domain:%s" % domain, gap_seconds=6 * 3600,
+                           context={"domain": domain})
+    print("  %s" % result.detail)
+
+
 def main():
-    if len(sys.argv) != 2:
+    args = sys.argv[1:]
+    if args and args[0] == "notify":
+        # Setting up and testing the notification email, same as every tool here.
+        sys.exit(notify.main(args[1:] or ["show"]))
+
+    options, positional = parse_options(args)
+    if len(positional) != 1:
         print(__doc__.strip())
         sys.exit(2)
 
-    domain = sys.argv[1].strip().lower()
+    domain = positional[0].strip().lower()
     for prefix in ("https://", "http://"):
         if domain.startswith(prefix):
             domain = domain[len(prefix):]
@@ -141,16 +200,28 @@ def main():
     # Verdict weighted mostly on DMARC, since it's what actually blocks fakes.
     if spf_status == "good" and dmarc_status == "good":
         print("Verdict: well protected. It's genuinely hard to forge mail from this domain.")
+        # Nothing is emailed here. An all-clear that arrives every week is an
+        # email you learn to delete unread, and then you delete the real one too.
         sys.exit(0)
-    elif dmarc_status == "missing" or spf_status in ("missing", "bad"):
+
+    findings = ["SPF:   %s" % spf_msg, "", "DMARC: %s" % dmarc_msg, ""]
+    if dmarc_status == "missing" or spf_status in ("missing", "bad"):
         print("Verdict: EXPOSED. Someone could send email as this business today, and")
         print("the owner would never know. This is a fast, high-value fix - exactly the")
         print("kind of thing that makes a small business owner glad they called.")
-        sys.exit(1)
+        findings.append("Someone could send email as this business today, and the owner")
+        findings.append("would never know. This is a fast fix: it is three DNS records.")
+        verdict = "exposed"
     else:
         print("Verdict: partly protected. The pieces are started but not finished -")
         print("tightening them to reject fakes is a quick, worthwhile job.")
-        sys.exit(1)
+        findings.append("The pieces are started but not finished. Tightening them to")
+        findings.append("reject fakes is a quick, worthwhile job.")
+        verdict = "partly protected"
+
+    if options.get("notify"):
+        tell_them(domain, verdict, findings, options)
+    sys.exit(1)
 
 
 if __name__ == "__main__":

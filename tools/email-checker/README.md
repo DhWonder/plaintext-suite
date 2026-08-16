@@ -63,13 +63,17 @@ uploading that to a public analysis service publishes it permanently to anyone
 with an account. Several well known tools do that by default. This one will not
 do it at all.
 
-Only three things ever leave, and only if you allow them:
+Only four things ever leave, and only if you allow them:
 
 | | What is sent | To whom |
 |---|---|---|
 | attachment reputation | a SHA-256 fingerprint, which cannot be turned back into the file | MalwareBazaar, VirusTotal with `--vt-key` |
 | domain check | the sender's domain name, which is already public | DNS over HTTPS |
 | breach lookup | the address itself, because there is no other way | the databases the tool names before it asks |
+| `--notify` | the verdict of a breach or password check | your own address, through your own mail server |
+
+The notification never contains a password you typed, and never contains any
+part of an email you were checking.
 
 `--offline` contacts nothing at all. The message and attachment structure are
 still fully checked, because that half never needed the network.
@@ -89,6 +93,21 @@ The breach lookup does send the address, so the tool names exactly who gets
 asked and waits for a yes. Check your own address freely. Check a client's only
 if they have agreed to it.
 
+Both of these are worth running again in a few months, which means cron, which
+means something has to tell you. `--notify` emails you the answer, and only when
+there is an answer worth having:
+
+```
+python3 email_checker.py notify setup                       write the settings file
+python3 email_checker.py notify test                        prove it can send
+python3 email_checker.py breach you@example.com --yes --notify
+```
+
+Nothing is sent when the address is clean or the password is strong. A monthly
+all-clear is an email you learn to delete unread, and then the one that matters
+gets deleted unread too. Note the `--yes`: from cron there is nobody there to
+confirm the lookup, so you are agreeing in advance to send that address.
+
 ## Options
 
 ```
@@ -100,6 +119,7 @@ if they have agreed to it.
 --save-to DIR    write attachments out, renamed so they cannot be run
 --json FILE      also write the findings as JSON
 --yes            skip the confirmation before a breach lookup sends an address
+--notify         email the answer, when there is one worth sending
 ```
 
 `--save-to` writes attachments renamed so a double click cannot run them, which

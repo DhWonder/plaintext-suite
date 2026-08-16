@@ -31,6 +31,12 @@ USAGE
       python3 traffic_analyzer.py show 3
       python3 traffic_analyzer.py sites --history shop.example.com
 
+  Get an email when somebody is attacking you, or a site of yours is down
+      python3 traffic_analyzer.py notify setup     write the settings file
+      python3 traffic_analyzer.py notify test      prove it can send
+      sudo python3 traffic_analyzer.py live eth0 --notify
+      python3 traffic_analyzer.py sites clients.txt --notify
+
 OPTIONS
 
   --html FILE      also write the self contained HTML dashboard
@@ -44,6 +50,11 @@ OPTIONS
   --ui FILE        path to traffic-analyzer-ui.html if it is not found automatically
   --open           open the browser once the view is up
   --top N          how many sources to print (default 12)
+  --notify         email you when a live capture finds a hostile source, or a
+                   site check finds one down or with a dying certificate. Off
+                   unless you pass it, and it needs ~/.plaintext/notify.conf,
+                   which `notify setup` writes for you.
+  --notify-config FILE  use a different settings file than the default one
 
 It reads pcap and pcapng, either of them gzipped, IPv4 and IPv6, over Ethernet,
 raw IP, Linux cooked capture and loopback. Nothing needs installing.
@@ -57,7 +68,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from trafficanalyzer import analyse, capture, report
+from trafficanalyzer import analyse, capture, notify, report
 from trafficanalyzer import store as store_module
 
 
@@ -70,6 +81,10 @@ def main():
     options, positional = parse_options(args)
 
     command = positional[0] if positional else ""
+    if command == "notify":
+        # Setting up, testing and inspecting the notification email settings
+        # is the same job for every tool in the suite, so it is the same code.
+        return notify.main(positional[1:] or ["show"])
     if command in ("live", "--live"):
         return command_live(positional[1:], options)
     if command in ("watch", "serve", "--serve"):
@@ -87,7 +102,8 @@ def main():
 def parse_options(args):
     """Pull the --flags out, leave everything else alone."""
     takes_value = {"--html", "--json", "--db", "--seconds", "--log", "--port",
-                   "--host", "--ui", "--top", "--note", "--live", "--history"}
+                   "--host", "--ui", "--top", "--note", "--live", "--history",
+                   "--notify-config"}
     options = {}
     positional = []
     index = 0
@@ -239,7 +255,16 @@ def command_live(positional, options):
         print("Available: %s" % ", ".join(available))
         return 2
 
-    summary = live_module.run_terminal(interface, seconds, store=db, log_path=log_path)
+    # Say where the emails will go, or why they will not, before the capture
+    # starts. Finding out afterwards that nothing was ever going to arrive is
+    # the failure worth designing out.
+    notifier, said = notify.from_options("traffic-analyzer", options)
+    if said:
+        print(said)
+        print()
+
+    summary = live_module.run_terminal(interface, seconds, store=db, log_path=log_path,
+                                       notifier=notifier)
     if summary is None:
         if db:
             db.close()
@@ -268,13 +293,18 @@ def command_watch(options):
     if interface is True:
         interface = "any"
 
+    notifier, said = notify.from_options("traffic-analyzer", options)
+    if said:
+        print(said)
+
     monitor = None
     if interface:
         # Start capturing straight away rather than making them click a button.
         from trafficanalyzer import live as live_module
         monitor = live_module.LiveMonitor(interface,
                                           store=store_module.Store(db_path),
-                                          log_path=options.get("log"))
+                                          log_path=options.get("log"),
+                                          notifier=notifier)
         monitor.start_background()
         time.sleep(0.5)
         if monitor.error:
@@ -285,7 +315,7 @@ def command_watch(options):
     return server.serve(db_path, host=host, port=port,
                         ui_path=options.get("ui"),
                         open_browser=bool(options.get("open")),
-                        monitor=monitor)
+                        monitor=monitor, notifier=notifier)
 
 
 # ---------------------------------------------------------------------------
@@ -354,8 +384,67 @@ def command_sites(positional, options):
         db.save_checks(results)
         db.close()
         print("  Saved to %s" % (options.get("db") or store_module.DEFAULT_PATH))
+    if options.get("notify"):
+        notify_sites(results, options)
     print()
     return 1 if trouble else 0
+
+
+def notify_sites(results, options):
+    """Email about sites that are down, or whose certificate is going.
+
+    One message for all of them, because five sites behind the same failing
+    server is one problem and five emails about it is one problem too many.
+
+    A site that is merely slow does not email. That is worth knowing at nine in
+    the morning, not at three, and the report on screen already says it. Only
+    the two things a customer would notice get you woken up: the site is not
+    answering, or the browser is telling visitors it is dangerous.
+    """
+    notifier, said = notify.from_options("traffic-analyzer", options)
+    if said:
+        print(said)
+    if not notifier.available:
+        print()
+        return
+
+    worth_saying = []
+    for result in results:
+        if result["level"] not in ("critical", "high"):
+            continue
+        # A certificate with three weeks left does not need a daily reminder.
+        # A site that is down right now does. The headline is part of the key,
+        # so a site that gets worse emails again straight away rather than
+        # waiting out the quiet period it earned while it was merely expiring.
+        gap = 6 * 3600 if result["level"] == "critical" else 24 * 3600
+        if notifier.allow("site:%s:%s" % (result["host"], result["headline"]), gap):
+            worth_saying.append(result)
+
+    if not worth_saying:
+        print("  Nothing emailed: these were all in the last notification.")
+        print()
+        return
+
+    lines = []
+    for result in worth_saying:
+        lines.append("%s  %s" % (result["level"].upper(), result["host"]))
+        lines.append("  %s" % result["headline"])
+        for note in result["notes"]:
+            if not note:
+                continue
+            for index, line in enumerate(report.wrap(note, 68)):
+                lines.append("    %s%s" % ("- " if index == 0 else "  ", line))
+        lines.append("")
+    lines.append("Checked the way a browser checks: asked each site for its front")
+    lines.append("page and read the certificate it presented. Nothing was scanned.")
+
+    if len(worth_saying) == 1:
+        subject = "%s: %s" % (worth_saying[0]["host"],
+                              worth_saying[0]["headline"].lower())
+    else:
+        subject = "%d sites need attention" % len(worth_saying)
+
+    print("  %s" % notifier.send(subject, lines).detail)
 
 
 def command_sessions(options):

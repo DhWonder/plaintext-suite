@@ -13,6 +13,13 @@ machines, that you deployed on purpose, and all they send is a record of what
 somebody did to them. The console never sends a command back to anything. It
 receives, it stores, it shows. Reports flow one way, inward.
 
+One thing does leave, and only if you ask for it: the console can email you
+when a sensor is touched or a token fires. That is the console sending you a
+summary of what it was told, not the console reaching out to anything else.
+The sensors themselves never send mail, deliberately, because a honeypot is a
+machine you have decided to treat as untrusted and it has no business holding
+a mail password.
+
 It also catches the tokens. Every piece of bait a sensor plants carries a
 canary token, and each token can point at this console. If an attacker takes a
 fake credential and later uses it somewhere that touches the token, the token
@@ -36,9 +43,10 @@ from . import store as store_module
 
 
 class Console(object):
-    def __init__(self, db_path):
+    def __init__(self, db_path, notifier=None):
         self.store = store_module.Store(db_path)
         self.db_path = db_path
+        self.notifier = notifier
         self.lock = threading.Lock()
 
     def register(self, payload):
@@ -52,13 +60,100 @@ class Console(object):
     def report(self, payload):
         if payload.get("kind") == "session":
             self.store.save_session(payload["sensor"], payload["session"])
+            self._notify_session(payload["sensor"], payload["session"])
         return {"ok": True}
 
     def token_triggered(self, token_id, source_ip, detail=""):
         """A planted token was just used. This is the moment worth having."""
         token = self.store.token(token_id)
         self.store.record_trigger(token_id, source_ip, detail)
+        self._notify_trigger(token, token_id, source_ip, detail)
         return token
+
+    # -- telling you about it ------------------------------------------
+    def _notify_session(self, sensor, session):
+        """Somebody connected to a honeypot. Nobody legitimate does that.
+
+        One email per address per sensor per quiet period. A scanner that
+        knocks two hundred times in an hour is one fact, not two hundred, and
+        the console is still recording every one of them either way.
+        """
+        if self.notifier is None or not self.notifier.available:
+            return
+        peer = session.get("peer_ip", "unknown")
+        key = "decoy-session:%s:%s" % (sensor, peer)
+        if not self.notifier.allow(key, gap_seconds=3600):
+            return
+
+        commands = session.get("commands") or []
+        credentials = session.get("credentials") or []
+        files = session.get("read_files") or []
+
+        lines = ["Somebody connected to the honeypot. Nobody has a legitimate",
+                 "reason to, so this is either a scanner or somebody inside your",
+                 "network having a look around.", ""]
+        lines.append("They stayed %s seconds and typed %d command(s)."
+                     % (session.get("duration", 0), len(commands)))
+        if credentials:
+            lines.append("")
+            lines.append("Logins they tried:")
+            for item in credentials[:5]:
+                if item.get("username") is not None:
+                    lines.append("  %s / %s" % (item.get("username", ""),
+                                                item.get("password", "")))
+                else:
+                    lines.append("  %s" % str(item.get("raw", ""))[:80])
+            if len(credentials) > 5:
+                lines.append("  and %d more" % (len(credentials) - 5))
+        if commands:
+            lines.append("")
+            lines.append("What they typed:")
+            for line in commands[:10]:
+                lines.append("  %s" % str(line)[:100])
+            if len(commands) > 10:
+                lines.append("  and %d more" % (len(commands) - 10))
+        if files:
+            lines.append("")
+            lines.append("Bait they read: %s"
+                         % ", ".join(str(f).rsplit("/", 1)[-1] for f in files[:8]))
+        lines.append("")
+        lines.append("Nothing they typed was run. The whole session is in the console:")
+        lines.append("  python3 decoy_house.py report")
+
+        self.notifier.send_async(
+            "%s connected to decoy-house sensor %s" % (peer, sensor),
+            lines,
+            context={"sensor": sensor, "source": peer,
+                     "port": session.get("local_port", ""),
+                     "protocol": session.get("protocol", "")})
+
+    def _notify_trigger(self, token, token_id, source_ip, detail):
+        """A piece of bait was used somewhere else. This is the big one.
+
+        A connection to the sensor means somebody knocked. A token firing
+        means they took a fake credential away and tried it, which is a much
+        later and much more serious point in the story, so the quiet period is
+        short and the subject line says so plainly.
+        """
+        if self.notifier is None or not self.notifier.available:
+            return
+        label = (token or {}).get("label") or token_id
+        sensor = (token or {}).get("sensor") or "unknown sensor"
+        lines = ["A canary token was just used.", "",
+                 "This is bait: a fake credential planted on the honeypot, that",
+                 "exists for no reason except to be stolen. Somebody has taken it",
+                 "and tried to use it, so they had access to that machine and are",
+                 "now working through what they found on it.", "",
+                 "Bait:    %s" % label,
+                 "Kind:    %s" % ((token or {}).get("kind") or "unknown"),
+                 "Used by: %s" % source_ip,
+                 "Seen as: %s" % (detail or "no other detail"), "",
+                 "Nothing was reached into to learn this. The token called here.",
+                 "Treat the sensor's network as compromised until you know better."]
+        self.notifier.send_async(
+            "canary token used: %s" % label, lines,
+            key="decoy-token:%s" % token_id, gap_seconds=300,
+            context={"sensor": sensor, "source": source_ip, "token": token_id})
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -167,8 +262,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-def serve(db_path, host="127.0.0.1", port=8770, ui_path=None):
-    console = Console(db_path)
+def serve(db_path, host="127.0.0.1", port=8770, ui_path=None, notifier=None):
+    console = Console(db_path, notifier=notifier)
     handler = type("Bound", (Handler,), {"console": console, "ui_path": ui_path})
     httpd = ThreadingHTTPServer((host, port), handler)
 
@@ -184,6 +279,8 @@ def serve(db_path, host="127.0.0.1", port=8770, ui_path=None):
     print("decoy-house console at %s" % where)
     print("Database: %s" % db_path)
     print("Point sensors at it with:  --console %s" % where.rstrip("/"))
+    if notifier is not None and notifier.enabled:
+        print(notifier.describe())
     print("Press Ctrl+C to stop.")
     try:
         httpd.serve_forever()

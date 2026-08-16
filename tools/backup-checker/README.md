@@ -38,7 +38,8 @@ sh backup-witness.sh drill  /mnt/backup-drive/office-backup  /home/office/docume
 ```
 
 It prints a short human-readable report and ends with a verdict. No configuration
-files, no installation — it's one script.
+files, no installation — it's one script. (One optional extra: `--notify` emails
+you the report, and that does need settings, below.)
 
 If you want it to watch your backups automatically, run the `check` from cron and
 you'll only hear from it when something needs attention (it exits silently-successful
@@ -47,6 +48,20 @@ when all is well, which cron treats as "nothing to report"):
 ```
 0 9 * * * sh /path/to/backup-witness.sh check /mnt/backup-drive/office-backup || echo "backup needs a look"
 ```
+
+That line assumes cron on this machine can email you, which on a modern server
+it usually cannot. `--notify` does it directly instead:
+
+```
+sh backup-witness.sh notify setup                    write ~/.plaintext/notify.conf
+sh backup-witness.sh notify test                     prove it can actually send
+0 9 * * * sh /path/to/backup-witness.sh check /mnt/backup-drive/office-backup --notify
+```
+
+You hear from it when the backup has stopped, has shrunk, or a drill failed, and
+the email is the same report you would have read on screen. A run that finds
+nothing wrong sends nothing. It needs `notify.py`, which sits next to this
+script, and python3; see [`../notifications`](../notifications).
 
 ## What it deliberately doesn't do
 

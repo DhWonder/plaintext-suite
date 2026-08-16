@@ -32,9 +32,13 @@ class LiveMonitor(object):
     """Captures from an interface until told to stop."""
 
     def __init__(self, interface="any", store=None, log_path=None,
-                 label=None, note="", include_loopback=False, find_public=True):
+                 label=None, note="", include_loopback=False, find_public=True,
+                 notifier=None):
         self.interface = interface or "any"
         self.store = store
+        # Optional, and off unless asked for: somebody to email when a source
+        # turns hostile. Nothing here changes if it is None.
+        self.notifier = notifier
         self.label = label or ("live: " + self.interface)
         self.note = note
         self.log_path = log_path
@@ -235,6 +239,9 @@ class LiveMonitor(object):
             self._log("%-8s %-24s %-39s %s"
                       % (row["level"].upper(), rule, row["ip"], message))
 
+        if fresh and self.notifier is not None:
+            self._notify(fresh)
+
         if self.store is not None and self.session_id is not None:
             if buckets:
                 self.store.save_buckets(self.session_id, buckets)
@@ -285,6 +292,46 @@ class LiveMonitor(object):
         }
 
     # ------------------------------------------------------------------
+    def _notify(self, fresh):
+        """Email about sources that have just turned hostile.
+
+        Five new attackers inside the same three second flush is one thing
+        happening, so it is one email listing all five rather than five
+        emails. The notifier remembers which addresses it has already
+        mentioned, so a flood that lasts an hour does not mail you all hour.
+
+        It sends on a thread of its own. A mail server that takes ten seconds
+        to answer must not stop the capture for ten seconds; going deaf during
+        an attack to send an email about the attack would be a poor trade.
+        """
+        worth_saying = [item for item in fresh
+                        if self.notifier.allow("traffic:%s" % item[3])]
+        if not worth_saying:
+            return
+
+        lines = []
+        for _at, level, rule, ip, message in worth_saying:
+            lines.append("%-8s  %s" % (level.upper(), ip))
+            lines.append("          %s" % message)
+            lines.append("          (%s)" % rule)
+            lines.append("")
+        lines.append("Seen on %s, %s packets into this capture."
+                     % (self.interface, "{:,}".format(self.packets_seen)))
+        lines.append("The full picture, with what to change, is in the report:")
+        lines.append("  python3 traffic_analyzer.py watch")
+
+        if len(worth_saying) == 1:
+            subject = "%s is attacking %s" % (worth_saying[0][3], self.interface)
+        else:
+            subject = "%d sources attacking %s" % (len(worth_saying), self.interface)
+
+        self.notifier.send_async(
+            subject, lines,
+            context={"interface": self.interface,
+                     "session": self.session_id or "not being saved"},
+            done=lambda result: self._log("notification: %s" % result.detail))
+
+    # ------------------------------------------------------------------
     def _log(self, message):
         if not self.log_path:
             return
@@ -304,8 +351,10 @@ class LiveMonitor(object):
 # no browser. Deliberately simple: no cursor tricks, no colours beyond the
 # level, nothing that breaks on a strange terminal.
 # ---------------------------------------------------------------------------
-def run_terminal(interface, seconds, store=None, log_path=None, refresh=2.0):
-    monitor = LiveMonitor(interface, store=store, log_path=log_path)
+def run_terminal(interface, seconds, store=None, log_path=None, refresh=2.0,
+                 notifier=None):
+    monitor = LiveMonitor(interface, store=store, log_path=log_path,
+                          notifier=notifier)
     last_draw = [0.0]
 
     def tick(mon):

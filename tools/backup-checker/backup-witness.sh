@@ -10,6 +10,8 @@
 # Usage:
 #   backup-witness.sh check  /path/to/backup/folder
 #   backup-witness.sh drill  /path/to/backup/folder /path/to/original/folder
+#   backup-witness.sh check  /path/to/backup/folder --notify
+#   backup-witness.sh notify setup | test | show
 #
 # "check" answers: did a backup happen recently, and does it look sane?
 # "drill" answers: can I take a random file out of the backup and does
@@ -18,20 +20,66 @@
 # Exit codes: 0 = all good, 1 = warning, 2 = something is wrong.
 # That makes it easy to run from cron and get emailed only on trouble.
 #
+# --notify is for when cron is not set up to mail you, which on a modern
+# machine it usually is not. It sends this report to the address in
+# ~/.plaintext/notify.conf, and only when something is wrong: a run that
+# finds nothing to say sends nothing, because an all-clear that arrives
+# every night is an email you stop reading. It needs notify.py, which
+# lives next to this script, and python3.
+#
 # DhWonder, Plaintext IT - MIT license.
 
 MAX_AGE_HOURS=30      # newest file in the backup should be younger than this
 SHRINK_ALERT=10       # complain if the backup shrank more than this percent
 STATE_DIR="${HOME}/.backup-witness"
 
-say()  { printf '%s\n' "$*"; }
-fail() { say "PROBLEM: $*"; exit 2; }
+HERE=$(dirname "$0")
+NOTIFY=0
+NOTIFY_CONFIG=""
+TRANSCRIPT=""
+SUBJECT_OF="backup"
+
+# Everything printed is also kept, so that if there turns out to be
+# something worth emailing, the email is the same words you would have
+# read on the screen rather than a summary of them.
+say() {
+    printf '%s\n' "$*"
+    if [ -n "$TRANSCRIPT" ]; then
+        printf '%s\n' "$*" >> "$TRANSCRIPT"
+    fi
+    return 0
+}
+
+notify_send() {
+    # notify_send <subject> <key>. Body is everything said so far.
+    [ "$NOTIFY" -eq 1 ] || return 0
+    [ -n "$TRANSCRIPT" ] || return 0
+    if [ ! -f "$HERE/notify.py" ] || ! command -v python3 >/dev/null 2>&1; then
+        printf '%s\n' "Could not send the notification: it needs python3 and notify.py"
+        printf '%s\n' "next to this script. The report above is unaffected."
+        return 1
+    fi
+    if [ -n "$NOTIFY_CONFIG" ]; then
+        python3 "$HERE/notify.py" send --tool backup-checker \
+            --subject "$1" --key "$2" --config "$NOTIFY_CONFIG" < "$TRANSCRIPT"
+    else
+        python3 "$HERE/notify.py" send --tool backup-checker \
+            --subject "$1" --key "$2" < "$TRANSCRIPT"
+    fi
+}
+
+fail() {
+    say "PROBLEM: $*"
+    notify_send "backup problem: $SUBJECT_OF" "backup:$SUBJECT_OF"
+    exit 2
+}
 warn_count=0
 warn() { say "WARNING: $*"; warn_count=$((warn_count + 1)); }
 
 usage() {
-    say "usage: $0 check  <backup-folder>"
-    say "       $0 drill  <backup-folder> <original-folder>"
+    say "usage: $0 check  <backup-folder> [--notify]"
+    say "       $0 drill  <backup-folder> <original-folder> [--notify]"
+    say "       $0 notify setup|test|show"
     exit 2
 }
 
@@ -40,6 +88,7 @@ usage() {
 # ---------------------------------------------------------------
 do_check() {
     backup="$1"
+    SUBJECT_OF="$backup"
 
     [ -d "$backup" ] || fail "the backup folder '$backup' does not exist. If it lives on an external disk or network drive, it may not be connected."
 
@@ -90,6 +139,7 @@ do_check() {
         exit 0
     else
         say "Verdict: $warn_count warning(s) above. A warning today is cheaper than a disaster later."
+        notify_send "backup warning: $backup" "backup:$backup"
         exit 1
     fi
 }
@@ -100,6 +150,7 @@ do_check() {
 do_drill() {
     backup="$1"
     original="$2"
+    SUBJECT_OF="$backup"
 
     [ -d "$backup" ]   || fail "backup folder '$backup' not found."
     [ -d "$original" ] || fail "original folder '$original' not found."
@@ -146,13 +197,55 @@ do_drill() {
         say "Verdict: this may just mean the file changed since the last backup ran."
         say "Run the drill again on a file that hasn't changed lately. If mismatches"
         say "keep happening, treat the backup as broken until proven otherwise."
+        notify_send "restore drill mismatch: $backup" "drill:$backup"
         exit 1
     fi
 }
 
 # ---------------------------------------------------------------
-case "$1" in
-    check) [ $# -eq 2 ] || usage; do_check "$2" ;;
-    drill) [ $# -eq 3 ] || usage; do_drill "$2" "$3" ;;
+# Arguments. The flags are pulled out first so the folder paths can be
+# anywhere on the line, and so a path with a space in it still survives.
+# ---------------------------------------------------------------
+mode="${1:-}"
+[ $# -gt 0 ] && shift
+
+remaining=$#
+while [ "$remaining" -gt 0 ]; do
+    arg="$1"
+    shift
+    remaining=$((remaining - 1))
+    case "$arg" in
+        --notify)
+            NOTIFY=1 ;;
+        --notify-config)
+            NOTIFY_CONFIG="$1"
+            shift
+            remaining=$((remaining - 1)) ;;
+        --*)
+            printf '%s\n' "I do not know the option $arg"
+            usage ;;
+        *)
+            set -- "$@" "$arg" ;;
+    esac
+done
+
+if [ "$NOTIFY" -eq 1 ]; then
+    TRANSCRIPT=$(mktemp "${TMPDIR:-/tmp}/backup-witness.XXXXXX" 2>/dev/null) || TRANSCRIPT=""
+    [ -n "$TRANSCRIPT" ] && trap 'rm -f "$TRANSCRIPT"' EXIT INT TERM
+fi
+
+case "$mode" in
+    check)  [ $# -eq 1 ] || usage; do_check "$1" ;;
+    drill)  [ $# -eq 2 ] || usage; do_drill "$1" "$2" ;;
+    notify)
+        # Setting up and testing the notification email, the same settings
+        # and the same commands as every other tool in the suite.
+        if [ ! -f "$HERE/notify.py" ] || ! command -v python3 >/dev/null 2>&1; then
+            say "That needs python3 and notify.py next to this script."
+            exit 2
+        fi
+        if [ $# -eq 0 ]; then set -- show; fi
+        python3 "$HERE/notify.py" "$@"
+        exit $? ;;
     *) usage ;;
 esac

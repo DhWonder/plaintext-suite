@@ -48,7 +48,30 @@ its name: programs wearing a document's name, double extensions like
 launch actions, password protected archives, programs inside archives, disk
 images. Then, optionally, whether a malware database has seen that exact file.
 
-**3. Can the sender's domain be forged.** SPF, DKIM and DMARC for the domain the
+**3. Where the links actually go.** The wording checks already notice when a link
+shows one address and leads to another. This answers the next question: the link
+goes to `secure-billing-verify.com`, so is that a real company or something
+somebody registered on Tuesday. Each domain is asked about four ways and the
+answers are crossed:
+
+| Source | Key | What it adds |
+|---|---|---|
+| Spamhaus DBL | none | a domain blocklist, asked over DNS |
+| SURBL | none | a second list, kept by different people |
+| How old it is | none | the registration date, over RDAP |
+| VirusTotal | free key | how many vendors flag the domain |
+
+The crossing is the point. A domain on a blocklist **and** registered four days
+ago is not a judgement call. A domain fifteen years old and on no list is almost
+certainly the real company. And a brand new domain no list has caught up with yet
+is exactly the case a single blocklist lookup would have called clean, which is
+why the age is asked about at all.
+
+A link that fails this raises the whole message's verdict rather than being a
+footnote, because a message that reads perfectly normally and carries a link to a
+domain registered on Tuesday is exactly the message people click.
+
+**4. Can the sender's domain be forged.** SPF, DKIM and DMARC for the domain the
 mail claims to come from. A domain with no DMARC can be impersonated by anyone,
 which turns a suspicious message into a plausible one.
 
@@ -63,12 +86,13 @@ uploading that to a public analysis service publishes it permanently to anyone
 with an account. Several well known tools do that by default. This one will not
 do it at all.
 
-Only four things ever leave, and only if you allow them:
+Only five things ever leave, and only if you allow them:
 
 | | What is sent | To whom |
 |---|---|---|
 | attachment reputation | a SHA-256 fingerprint, which cannot be turned back into the file | MalwareBazaar, VirusTotal with `--vt-key` |
 | domain check | the sender's domain name, which is already public | DNS over HTTPS |
+| link check | the domain a link points at, which is already public | Spamhaus, SURBL, the domain registry, VirusTotal with `--vt-key` |
 | breach lookup | the address itself, because there is no other way | the databases the tool names before it asks |
 | `--notify` | the verdict of a breach or password check | your own address, through your own mail server |
 

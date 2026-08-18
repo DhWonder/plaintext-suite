@@ -97,6 +97,7 @@ def render_email(result, origin):
     print()
 
     _render_message_part(result["message"])
+    _render_links(result.get("links"))
     _render_attachments(result["attachments"])
     _render_domain(result.get("domain"))
 
@@ -116,6 +117,36 @@ def _render_message_part(msg_report):
     for line in wrap(body, 62):
         print("      " + line)
     print()
+
+
+def _render_links(reports):
+    """Where the links go, and what several databases said about each domain."""
+    part("Where the links actually go")
+    if not reports:
+        say("Not checked. Looking a domain up needs the network, so this is skipped "
+            "when the tool is offline, and there is nothing to check in a message "
+            "with no links.", "      ")
+        print()
+        return
+
+    print()
+    # Worst first: a link that is both blocklisted and days old is the thing to
+    # read, and it should not be third in a list of five.
+    for report in sorted(reports, key=lambda r: -r.get("weight", 0)):
+        headline, body = report["verdict"]
+        print("      %s" % report["domain"])
+        print("      %s" % ("." * 60))
+        print("          %s" % headline)
+        for line in wrap(body, 58):
+            print("          " + line)
+        print()
+        for source in report.get("sources", []):
+            if source.get("skipped"):
+                continue
+            mark = "!" if source.get("known") else (" " if source.get("ok") else "?")
+            print("          %s %-14s %s" % (mark, source.get("source", ""),
+                                             source.get("why", "")))
+        print()
 
 
 def _render_attachments(reports):

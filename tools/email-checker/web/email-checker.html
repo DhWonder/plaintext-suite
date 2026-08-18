@@ -433,6 +433,11 @@ function emailCard(rep){
   if (m.verdict){ html += '<p class="dm" style="margin-top:8px">' + esc(m.verdict[1]) + '</p>'; }
   html += '</div>';
 
+  // where the links go
+  html += '<div class="sec"><div class="t">Where the links actually go</div>';
+  html += linksHtml(rep.links);
+  html += '</div>';
+
   // attachments
   html += '<div class="sec"><div class="t">Attachments</div>';
   var atts = rep.attachments || [];
@@ -450,6 +455,41 @@ function emailCard(rep){
 
   html += '</div>';
   return html;
+}
+
+function linksHtml(reports){
+  if (!reports || !reports.length){
+    return '<p class="dm">Not checked. Looking a domain up needs the network, so this is ' +
+           'skipped when the tool is offline, and there is nothing to check in a message ' +
+           'with no links.</p>';
+  }
+  // Worst first: a link that is both blocklisted and days old is the thing to
+  // read, and it should not be third in a list of five.
+  var sorted = reports.slice().sort(function(a, b){
+    return (b.weight || 0) - (a.weight || 0);
+  });
+  return sorted.map(function(r){
+    var weight = r.weight || 0;
+    var cls = weight >= 3 ? "w3" : (weight === 2 ? "w2" : "");
+    var html = '<div class="att"><div class="nm">' + esc(r.domain) + "</div>";
+    if (cls){
+      html += '<div class="find ' + cls + '"><span class="tag">' +
+              (weight >= 3 ? "serious" : "bad sign") + "</span><p>" +
+              esc(r.verdict[1]) + "</p></div>";
+    } else {
+      html += '<p class="clean">' + esc(r.verdict[1]) + "</p>";
+    }
+    (r.sources || []).forEach(function(s){
+      if (s.skipped) return;
+      var right, k = "";
+      if (!s.ok){ right = s.why || "no answer"; }
+      else if (s.known){ right = s.why; k = "bad"; }
+      else { right = s.why; k = "ok"; }
+      html += '<div class="src"><span class="n">' + esc(s.source) + '</span>' +
+              '<span class="r ' + k + '">' + esc(right) + "</span></div>";
+    });
+    return html + "</div>";
+  }).join("");
 }
 
 function attachmentHtml(a){

@@ -12,7 +12,7 @@ together and produce a single verdict, because the question a person actually ha
 is "do I trust this email", not "does part three of five look alright".
 """
 
-from . import attachments, maildomain, message, read, reputation
+from . import attachments, links as links_module, maildomain, message, read, reputation
 
 LEVELS = ["normal", "watch", "high", "critical"]
 RANK = {name: i for i, name in enumerate(LEVELS)}
@@ -52,7 +52,17 @@ def analyze_one(loaded, offline=True, vt_key="", mb_key="", check_domain=None):
         except Exception:
             domain_report = None
 
-    level, verdict = combine(msg_report, attach_reports, domain_report)
+    # Where the links actually go, crossed against the blocklists and the
+    # registry. This needs the network, so it follows the same switch as the
+    # rest of the lookups.
+    link_reports = []
+    if not offline and msg_report.get("links"):
+        try:
+            link_reports = links_module.check_all(msg_report["links"], vt_key=vt_key)
+        except Exception:
+            link_reports = []
+
+    level, verdict = combine(msg_report, attach_reports, domain_report, link_reports)
     return {
         "format": loaded.format,
         "message_index": loaded.index,
@@ -65,6 +75,7 @@ def analyze_one(loaded, offline=True, vt_key="", mb_key="", check_domain=None):
         "message": msg_report,
         "attachments": attach_reports,
         "domain": domain_report,
+        "links": link_reports,
         "level": level,
         "verdict": verdict,
     }
@@ -80,9 +91,14 @@ def _worst_attachment_level(attach_reports):
     return worst
 
 
-def combine(msg_report, attach_reports, domain_report):
+def combine(msg_report, attach_reports, domain_report, link_reports=None):
     """One level and one verdict for the whole email."""
-    msg_score = msg_report.get("score", 0)
+    link_reports = link_reports or []
+    # A link the blocklists already know, or a domain registered last week, is
+    # worth as much as anything the wording checks found, so it counts towards
+    # the same score rather than being a footnote nobody reads.
+    link_weight = max([r.get("weight", 0) for r in link_reports] or [0])
+    msg_score = msg_report.get("score", 0) + link_weight
     attach_level = _worst_attachment_level(attach_reports)
     known_bad = any(r.get("reputation", {}).get("known_bad") for r in attach_reports)
 
@@ -96,7 +112,17 @@ def combine(msg_report, attach_reports, domain_report):
     else:
         msg_level = "normal"
 
-    level = LEVELS[max(RANK[msg_level], RANK[attach_level])]
+    # A domain two independent blocklists already know, or one registered days
+    # before the message was sent, is a fact rather than a hint. It sets a floor
+    # on the verdict on its own, because a clean-looking message with a known
+    # phishing link in it is exactly the message people click.
+    link_level = "normal"
+    if link_weight >= 3:
+        link_level = "high"
+    elif link_weight == 2:
+        link_level = "watch"
+
+    level = LEVELS[max(RANK[msg_level], RANK[attach_level], RANK[link_level])]
 
     # Wording, strongest concern first.
     phishing = msg_score >= 5
@@ -109,6 +135,10 @@ def combine(msg_report, attach_reports, domain_report):
         lines.append("the message itself has the shape of a phishing email")
     elif msg_score >= 1:
         lines.append("parts of the message do not add up")
+    worst_link = max(link_reports, key=lambda r: r.get("weight", 0)) if link_reports else None
+    if worst_link and worst_link.get("weight", 0) >= 2:
+        lines.append("a link in it goes somewhere that does not check out (%s)"
+                     % worst_link["domain"])
     if domain_report and domain_report.get("forgeable") and msg_score >= 1:
         lines.append("and the sender's domain is easy to forge, so a real impersonation is possible")
 
@@ -120,7 +150,7 @@ def combine(msg_report, attach_reports, domain_report):
                 "already had.")
         return level, (headline, body)
 
-    if known_bad or attach_level == "critical" or phishing:
+    if known_bad or attach_level == "critical" or phishing or link_weight >= 3:
         headline = "Do not open or act on this email"
     elif attach_level == "high":
         headline = "An attachment here should not be opened"
@@ -128,6 +158,8 @@ def combine(msg_report, attach_reports, domain_report):
         headline = "Worth a closer look before trusting this"
 
     body = _sentence(lines) + ". "
+    if link_weight >= 3 and worst_link:
+        body += ("Do not open the link to %s. " % worst_link["domain"])
     if known_bad or attach_level in ("critical", "high"):
         body += ("Do not open the attachment. ")
     if phishing:

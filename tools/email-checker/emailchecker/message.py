@@ -201,12 +201,19 @@ def findings_for(message):
     # ------------------------------------------------------------------
     plain, html_body = get_bodies(message)
 
+    # Kept so the caller can look the destinations up in the blocklists. The
+    # wording checks below only compare what a link says against where it goes;
+    # whether the destination is a known bad domain is a separate question, and
+    # answering it needs the network.
+    all_links = []
+
     if html_body:
         collector = LinkCollector()
         try:
             collector.feed(html_body)
         except Exception:
             pass
+        all_links = list(collector.links)
         for href, text in collector.links:
             if not href or href.startswith(("mailto:", "tel:", "#")):
                 continue
@@ -263,6 +270,13 @@ def findings_for(message):
                 "The attachment '%s' has a fake double file-ending - it "
                 "pretends to be a document but isn't one." % filename))
 
+    # A message with no HTML part still carries links, just as bare text. The
+    # comparison above cannot apply to them (there is no visible text saying
+    # something different) but the destination is still worth looking up.
+    for found in re.findall(r"https?://[^\s<>\"\')]+", plain or ""):
+        if not any(found == href for href, _text in all_links):
+            all_links.append((found, ""))
+
     findings.sort(reverse=True)
     score = sum(weight for weight, _ in findings)
     return {
@@ -272,6 +286,7 @@ def findings_for(message):
         "reply_to": (message.get("Reply-To") or "").strip(),
         "date": (message.get("Date") or "").strip(),
         "findings": findings,
+        "links": all_links,
         "score": score,
         "verdict": verdict_for(findings, score),
     }

@@ -68,6 +68,8 @@ def print_report(a, show=12):
                     print("      %s%s" % ("- " if i == 0 else "  ", line))
         print()
 
+    print_reputation(a)
+
     print("  What to change")
     print("  " + "-" * 70)
     for title, detail, urgency in a["recommendations"]:
@@ -75,6 +77,47 @@ def print_report(a, show=12):
         for line in wrap(detail, 68):
             print("      " + line)
         print()
+
+
+def print_reputation(a):
+    """What VirusTotal said about the flagged sources, if it was asked at all.
+
+    Only runs when --vt-key put a `reputation` block on at least one source. It
+    leads with the known-bad ones, because "already reported as an attacker" is
+    the sentence that changes what somebody does next.
+    """
+    from . import reputation as rep_module
+
+    rated = [r for r in a.get("sources", []) if r.get("reputation")]
+    if not rated:
+        return
+
+    # Known bad first, then suspicious, then the rest, so the strongest
+    # corroboration is what the eye lands on.
+    def rank(row):
+        result = row["reputation"]
+        if result.get("known"):
+            return 0
+        if result.get("suspicious"):
+            return 1
+        return 2
+    rated.sort(key=rank)
+
+    print("  What VirusTotal knows about the flagged sources")
+    print("  " + "-" * 70)
+    for row in rated:
+        result = row["reputation"]
+        headline, body = rep_module.verdict(result)
+        level = "critical" if result.get("known") else row.get("level", "normal")
+        print("  %s  %s" % (paint(row["ip"], level), headline))
+        for line in wrap(body, 66):
+            print("      " + line)
+    coverage = a.get("reputation_coverage")
+    if coverage:
+        print()
+        for line in wrap("Coverage: " + coverage + ".", 68):
+            print("  " + line)
+    print()
 
 
 def wrap(text, width):

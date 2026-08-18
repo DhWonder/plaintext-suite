@@ -102,6 +102,20 @@ CREATE TABLE IF NOT EXISTS service_check (
     notes       TEXT
 );
 
+CREATE TABLE IF NOT EXISTS ip_reputation (
+    ip          TEXT PRIMARY KEY,       -- the address asked about
+    checked_at  REAL NOT NULL,          -- when the answer was fetched
+    known_bad   INTEGER DEFAULT 0,      -- 1 if any vendor calls it malicious
+    malicious   INTEGER DEFAULT 0,      -- how many vendors do
+    suspicious  INTEGER DEFAULT 0,
+    total       INTEGER DEFAULT 0,      -- how many vendors weighed in
+    reputation  INTEGER DEFAULT 0,      -- the community score, can be negative
+    country     TEXT DEFAULT '',
+    asn         TEXT DEFAULT '',
+    as_owner    TEXT DEFAULT '',
+    detail      TEXT DEFAULT ''         -- the whole answer, as JSON
+);
+
 CREATE INDEX IF NOT EXISTS service_by_host ON service_check (host, checked_at DESC);
 
 CREATE INDEX IF NOT EXISTS source_by_score ON source (session_id, score DESC);
@@ -408,6 +422,47 @@ class Store(object):
                FROM service_check WHERE host=? ORDER BY checked_at DESC LIMIT ?""",
             (host, limit)).fetchall()
         return [dict(r) for r in rows]
+
+    # ------------------------------------------------------------------
+    # Address reputation (VirusTotal), cached so a re-run costs no lookups
+    # ------------------------------------------------------------------
+    def get_reputation(self, ip, max_age=None):
+        """The stored answer for an address, if it is still fresh enough.
+
+        Returns the same flat dict the reputation module produces, or None when
+        there is nothing cached or the cached answer is older than max_age.
+        """
+        row = self.db.execute(
+            "SELECT checked_at, detail FROM ip_reputation WHERE ip=?", (ip,)).fetchone()
+        if row is None or not row["detail"]:
+            return None
+        if max_age is not None and (time.time() - (row["checked_at"] or 0)) > max_age:
+            return None
+        try:
+            result = json.loads(row["detail"])
+        except ValueError:
+            return None
+        result["from_cache"] = True
+        return result
+
+    def save_reputation(self, ip, result):
+        """Remember one answer. Only real answers are worth keeping."""
+        if not result or not result.get("ok"):
+            return
+        self.db.execute(
+            """INSERT OR REPLACE INTO ip_reputation
+               (ip, checked_at, known_bad, malicious, suspicious, total, reputation,
+                country, asn, as_owner, detail)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (ip, result.get("checked_at") or time.time(),
+             1 if result.get("known") else 0,
+             int(result.get("malicious", 0) or 0),
+             int(result.get("suspicious", 0) or 0),
+             int(result.get("total", 0) or 0),
+             int(result.get("reputation", 0) or 0),
+             result.get("country", ""), result.get("asn", ""),
+             result.get("as_owner", ""), json.dumps(result)))
+        self.db.commit()
 
     # ------------------------------------------------------------------
     def record_analysis(self, label, kind, analyzer, summary, rows=None, note=""):

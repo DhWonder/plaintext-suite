@@ -133,6 +133,39 @@ into its Linux half and its Windows half.
 
 ---
 
+## Asking VirusTotal about the flagged sources
+
+The scoring above needs no internet: it decides who is a problem from the traffic
+alone. If you pass a VirusTotal key, it will add one thing on top of that, and only
+for the sources it already flagged: has anybody else reported this address before.
+
+```
+python3 traffic_analyzer.py attack.pcap --vt-key YOUR_KEY
+```
+
+An address that is hammering you AND is flagged by forty vendors as a known attacker
+is a different conversation from one that merely looks busy. So the report gains a
+short section that leads with the known-bad ones, naming how many vendors call each
+address malicious and what country and network it sits in.
+
+The rules it follows are the same ones the rest of the suite follows:
+
+- **Only the flagged sources are looked up, never the whole capture,** and only the
+  address is ever sent. Sending an IP to VirusTotal tells VirusTotal you are looking
+  at it, which is a fair trade for an address already attacking you but is still a
+  thing that leaves, so it is off until you pass a key.
+- **The free key is small:** four lookups a minute, five hundred a day. The tool
+  paces itself to stay inside that, checks the busiest ten flagged sources and says
+  plainly when more were flagged than were looked up, and stops if the daily budget
+  runs out rather than failing halfway through in silence.
+- **Every answer is cached** in the same database, so running the same capture again,
+  or seeing the same address in a later one, costs no lookup.
+
+The key can also come from the `VT_API_KEY` environment variable, to keep it out of
+your shell history. A free key is enough; get one from virustotal.com.
+
+---
+
 ## The browser version
 
 `website/traffic-analyzer-ui.html` is the same analysis running in a browser. Open it
@@ -200,9 +233,11 @@ accident. Binding it anywhere else takes an explicit `--host` and prints a warni
   the report says the cap was hit. A number that quietly stopped being exact is worse
   than no number.
 - **It reads. It does not scan, block or change anything.** It contacts nobody
-  about what it found, with one exception you have to switch on yourself: with
-  `--notify` it emails you, through your mail server, at your address. Nothing
-  is ever sent to me, to a service, or to anybody else.
+  about what it found unless you switch it on yourself, and there are only two
+  ways to: `--notify` emails you, through your own mail server, at your own
+  address; and `--vt-key` sends the flagged addresses, and only those, to
+  VirusTotal to ask whether they are already known. Both are off by default.
+  Nothing is ever sent to me, and your traffic is never sent anywhere.
 
 ---
 
@@ -210,18 +245,21 @@ accident. Binding it anywhere else takes an explicit `--host` and prints a warni
 
 ```
 traffic_analyzer.py              the command line tool
-floodwatch/
+trafficanalyzer/
   capture.py                reading capture files and network cards
   analyse.py                scoring, grouping, recommendations
-  store.py                  the SQLite history
+  store.py                  the SQLite history, and the reputation cache
   live.py                   live capture, rolling state, the alert log
   server.py                 the local web server and JSON API
+  services.py               website reachability and certificate checks
+  reputation.py             the VirusTotal address lookups, paced and cached
   report.py                 the terminal report and the HTML dashboard
   notify.py                 the notification email, shared with the other tools
 tests/
   make_test_captures.py     builds a capture in every supported shape
   test_capture.py           proves the reader handles all of them
   test_parity.py            proves both engines agree
+  test_reputation.py        proves the VirusTotal lookups behave, offline
 make_sample_attack.py       builds the synthetic attack used in the demo
 samples/attack.pcap         that attack, ready to run
 ```

@@ -50,6 +50,13 @@ OPTIONS
   --ui FILE        path to traffic-analyzer-ui.html if it is not found automatically
   --open           open the browser once the view is up
   --top N          how many sources to print (default 12)
+  --vt-key KEY     a VirusTotal key. With it, the flagged sources (and only those)
+                   are looked up against VirusTotal to see if they are already
+                   known attackers. Only the address is sent, never any traffic.
+                   Answers are cached so a re-run costs nothing, and it pauses to
+                   stay inside the free key's four-a-minute limit. The key can also
+                   come from the VT_API_KEY environment variable, to keep it out of
+                   your shell history.
   --notify         email you when a live capture finds a hostile source, or a
                    site check finds one down or with a dying certificate. Off
                    unless you pass it, and it needs ~/.plaintext/notify.conf,
@@ -103,7 +110,7 @@ def parse_options(args):
     """Pull the --flags out, leave everything else alone."""
     takes_value = {"--html", "--json", "--db", "--seconds", "--log", "--port",
                    "--host", "--ui", "--top", "--note", "--live", "--history",
-                   "--notify-config"}
+                   "--notify-config", "--vt-key"}
     options = {}
     positional = []
     index = 0
@@ -184,6 +191,8 @@ def command_file(positional, options):
         "skipped": stats.skipped, "interfaces": stats.interfaces,
     }
 
+    enrich_reputation(summary, options)
+
     report.print_report(summary, show=int(options.get("top", 12) or 12))
     print_read_notes(stats)
     write_outputs(summary, options)
@@ -198,6 +207,78 @@ def command_file(positional, options):
         print("  See it again with: python3 traffic_analyzer.py watch")
     print()
     return 0
+
+
+def enrich_reputation(summary, options):
+    """If a VirusTotal key is given, look up the flagged sources and only those.
+
+    The key can come from --vt-key or, so it stays out of shell history, from the
+    VT_API_KEY or VIRUSTOTAL_API_KEY environment variable. Without one, nothing
+    here runs and the report is exactly as it was.
+    """
+    key = options.get("vt-key")
+    if key is True or not key:
+        key = os.environ.get("VT_API_KEY") or os.environ.get("VIRUSTOTAL_API_KEY") or ""
+    if not key:
+        return
+
+    from trafficanalyzer import analyse, reputation
+
+    local = set(summary.get("local_ips") or ())
+
+    def is_public(ip):
+        return (not analyse.is_private(ip) and not analyse.is_loopback(ip)
+                and ip not in local)
+
+    sources = summary.get("sources") or []
+    flagged = [r for r in sources
+               if r.get("level") in ("critical", "high") and is_public(r["ip"])]
+    if not flagged:
+        print("  VirusTotal: no flagged public addresses to look up.")
+        print()
+        return
+
+    # On the free key each live lookup waits its turn, so checking a hundred
+    # flagged sources would sit there for half an hour. In a flood the flagged
+    # sources are usually the same botnet anyway, so the first handful already
+    # tell the story. Check the busiest ones (they are sorted worst first) and
+    # say plainly when more were flagged than were looked up.
+    LOOKUP_CAP = 10
+    extra = 0
+    if len(flagged) > LOOKUP_CAP:
+        extra = len(flagged) - LOOKUP_CAP
+        flagged = flagged[:LOOKUP_CAP]
+
+    db = database(options)
+    checker = reputation.Checker(key=key, store=db, is_public=is_public)
+
+    total = len(flagged)
+
+    def progress(ip, n):
+        # Only worth saying while it actually has to wait on the network.
+        sys.stdout.write("\r  VirusTotal: looking up %s (%d of %d)      " % (ip, n, total))
+        sys.stdout.flush()
+
+    print("  VirusTotal: checking %d flagged address%s. Only the flagged ones are"
+          % (total, "" if total == 1 else "es"))
+    print("              sent, and only the address, never any traffic.")
+    if extra:
+        print("              (%d more were flagged; not looked up, to stay within the"
+              % extra)
+        print("              free key's limit.)")
+    results = checker.enrich([r["ip"] for r in flagged], progress=progress)
+    sys.stdout.write("\r" + " " * 72 + "\r")
+
+    for row in sources:
+        found = results.get(row["ip"])
+        if found:
+            row["reputation"] = found
+    coverage = checker.coverage()
+    if extra:
+        coverage = (coverage + ", " if coverage else "") + \
+            "%d more flagged sources not looked up" % extra
+    summary["reputation_coverage"] = coverage
+    db.close()
 
 
 def print_read_notes(stats):

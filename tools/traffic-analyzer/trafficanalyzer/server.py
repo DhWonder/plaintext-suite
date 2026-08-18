@@ -38,6 +38,21 @@ UI_CANDIDATES = [
 ]
 
 
+PACKET_UI_CANDIDATES = [
+    os.path.join(HERE, "..", "web", "traffic-analyzer-packets.html"),
+    os.path.join(HERE, "..", "traffic-analyzer-packets.html"),
+    os.path.join(HERE, "..", "..", "..", "website", "traffic-analyzer-packets.html"),
+]
+
+
+def find_packet_ui():
+    for path in PACKET_UI_CANDIDATES:
+        full = os.path.abspath(path)
+        if os.path.exists(full):
+            return full
+    return None
+
+
 def find_ui():
     for path in UI_CANDIDATES:
         full = os.path.abspath(path)
@@ -50,7 +65,7 @@ class State(object):
     """Everything the request handlers need, in one place."""
 
     def __init__(self, db_path, ui_path=None, allow_live=True, monitor=None,
-                 notifier=None):
+                 notifier=None, packet_log=None):
         # A capture may already be running, started before the server came up.
         # In that case share its database handle rather than opening a second.
         self.store = monitor.store if monitor is not None and monitor.store else \
@@ -63,7 +78,138 @@ class State(object):
         # started from the command line does, so the notifier is held here and
         # handed to every monitor this server creates.
         self.notifier = notifier
+        # The packet browser's data. Only present when the tool was started with
+        # a capture to browse, because keeping every packet is opt-in.
+        self.packet_log = packet_log
         self.lock = threading.Lock()
+
+    # -- the packet browser ---------------------------------------------
+    def packet_page(self, filter_text="", offset=0, limit=200):
+        """A page of packets, after the filter has had its say."""
+        from . import filters, packets as packets_module
+
+        log = self.packet_log
+        if log is None:
+            return {"error": "No capture is loaded for browsing. Start the tool with: "
+                             "python3 traffic_analyzer.py browse <capture>"}
+
+        try:
+            match = filters.compile_filter(filter_text)
+        except filters.FilterError as exc:
+            # A filter that will not parse must not quietly show nothing.
+            return {"error": exc.message, "position": exc.position, "hint": exc.hint,
+                    "bad_filter": True}
+
+        def payload_of(record):
+            data, _note = log.frame_bytes(record["n"])
+            return data
+
+        rows, scanned, matched = [], 0, 0
+        for record in log.records:
+            scanned += 1
+            try:
+                if not match(record, payload_of):
+                    continue
+            except Exception:
+                continue
+            matched += 1
+            if matched <= offset:
+                continue
+            if len(rows) >= limit:
+                continue
+            row = dict(record)
+            row.pop("at", None)
+            row["summary"] = packets_module.summary(record)
+            row["protocol"] = packets_module.proto_name(record["proto"])
+            rows.append(row)
+
+        return {
+            "rows": rows,
+            "matched": matched,
+            "total": len(log.records),
+            "offset": offset,
+            "dropped": log.dropped,
+            "reading": filters.describe(filter_text),
+            "path": os.path.basename(log.path) if log.path else "live capture",
+        }
+
+    def packet_detail(self, number):
+        """One packet: its layers, its bytes, and what it is doing."""
+        from . import packets as packets_module
+
+        log = self.packet_log
+        if log is None:
+            return {"error": "No capture is loaded for browsing."}
+        record = log.get(number)
+        if record is None:
+            return {"error": "There is no packet number %d in this capture." % number}
+
+        data, note = log.frame_bytes(number)
+        layers = packets_module.dissect(data, record.get("link") or 1) if data else []
+        return {
+            "packet": dict(record, summary=packets_module.summary(record),
+                           protocol=packets_module.proto_name(record["proto"])),
+            "explain": packets_module.explain(record),
+            "layers": layers,
+            "hex": packets_module.hexdump(data),
+            "bytes": len(data),
+            "note": note,
+        }
+
+    def packet_stream(self, number, limit=500):
+        """Every packet in one conversation, and the readable part of it."""
+        from . import packets as packets_module
+
+        log = self.packet_log
+        if log is None:
+            return {"error": "No capture is loaded for browsing."}
+        record = log.get(number)
+        if record is None:
+            return {"error": "There is no packet number %d in this capture." % number}
+
+        members = log.stream(number)
+        entry = log.stream_list[record["stream"]]
+
+        # Which direction each packet went, and any readable payload, so a
+        # conversation can be read the way it happened.
+        a_side = (entry["a"], entry.get("a_port"))
+        pieces = []
+        for member in members[:limit]:
+            data, _note = log.frame_bytes(member["n"])
+            text = ""
+            if data:
+                layers = packets_module.dissect(data, member.get("link") or 1)
+                for layer in layers:
+                    if layer["name"] == "Payload" and layer.get("text"):
+                        text = layer["text"]
+            pieces.append({
+                "n": member["n"],
+                "ts": member["ts"],
+                "from_a": (member["src"], member.get("sport")) == a_side,
+                "summary": packets_module.summary(member),
+                "size": member["size"],
+                "text": text,
+            })
+        return {
+            "stream": record["stream"],
+            "conversation": entry,
+            "packets": pieces,
+            "shown": len(pieces),
+            "total": len(members),
+        }
+
+    def packet_streams(self, limit=200):
+        from . import packets as packets_module
+
+        log = self.packet_log
+        if log is None:
+            return {"error": "No capture is loaded for browsing."}
+        rows = []
+        for entry in log.streams_summary(limit):
+            row = dict(entry)
+            row["protocol"] = packets_module.proto_name(entry["proto"])
+            rows.append(row)
+        return {"streams": rows, "total": len(log.stream_list)}
 
     # -- live control ---------------------------------------------------
     def start_live(self, interface, log_path=None, note=""):
@@ -190,6 +336,32 @@ class Handler(BaseHTTPRequestHandler):
                 ip = unquote(path[len("/api/live/source/"):])
                 return self.json(self.state.live_source(ip))
 
+            # The packet browser.
+            if path == "/packets" or path == "/packets.html":
+                return self.serve_packet_ui()
+            if path == "/api/packets":
+                return self.json(self.state.packet_page(
+                    filter_text=first(query, "filter", ""),
+                    offset=int(first(query, "offset", 0) or 0),
+                    limit=min(int(first(query, "limit", 200) or 200), 1000)))
+            if path == "/api/packets/fields":
+                from . import filters as filters_module
+                return self.json({"fields": [
+                    {"name": name, "note": note}
+                    for name, note in filters_module.help_text()]})
+            if path == "/api/packets/streams":
+                return self.json(self.state.packet_streams(
+                    limit=int(first(query, "limit", 200) or 200)))
+            if path.startswith("/api/packet/"):
+                rest = path[len("/api/packet/"):].strip("/").split("/")
+                try:
+                    number = int(rest[0])
+                except (ValueError, IndexError):
+                    return self.error_json(400, "Packet numbers are numbers.")
+                if len(rest) > 1 and rest[1] == "stream":
+                    return self.json(self.state.packet_stream(number))
+                return self.json(self.state.packet_detail(number))
+
             if path.startswith("/api/session/"):
                 return self.session_route(path, query)
 
@@ -301,6 +473,22 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def serve_packet_ui(self):
+        """The packet browser page, which sits next to the other one."""
+        path = find_packet_ui()
+        if not path:
+            return self.error_json(
+                404, "The packet browser page was not found. It should be at "
+                     "web/traffic-analyzer-packets.html next to this tool.")
+        with open(path, "rb") as fh:
+            body = fh.read()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
     def json(self, payload, code=200):
         body = json.dumps(payload, default=str).encode("utf-8")
         self.send_response(code)
@@ -322,9 +510,10 @@ def first(query, key, default=None):
 
 
 def serve(db_path, host="127.0.0.1", port=8724, ui_path=None, allow_live=True,
-          open_browser=False, monitor=None, notifier=None):
+          open_browser=False, monitor=None, notifier=None, packet_log=None,
+          landing="/"):
     state = State(db_path, ui_path=ui_path, allow_live=allow_live, monitor=monitor,
-                  notifier=notifier)
+                  notifier=notifier, packet_log=packet_log)
 
     handler = type("BoundHandler", (Handler,), {"state": state})
     httpd = ThreadingHTTPServer((host, port), handler)
@@ -336,12 +525,19 @@ def serve(db_path, host="127.0.0.1", port=8724, ui_path=None, allow_live=True,
         print("  captures. Only do this on a network you control, and stop it after.")
         print("")
 
-    where = "http://%s:%d/" % (host if host != "0.0.0.0" else "127.0.0.1", port)
+    base = "http://%s:%d" % (host if host != "0.0.0.0" else "127.0.0.1", port)
+    where = base + landing
     print("traffic-analyzer is at %s" % where)
     print("Database: %s" % db_path)
+    if packet_log is not None:
+        print("Packets:  %s browsable at %s/packets"
+              % ("{:,}".format(len(packet_log)), base))
+        if packet_log.dropped:
+            print("          %s more were read but not kept, so the list stops there."
+                  % "{:,}".format(packet_log.dropped))
     if state.ui_path:
         print("Page:     %s" % state.ui_path)
-    else:
+    elif landing == "/":
         print("Page:     not found. The API works, but there is no browser view.")
         print("          Pass --ui /path/to/traffic-analyzer-ui.html to fix that.")
     print("Press Ctrl+C to stop.")

@@ -22,6 +22,13 @@ USAGE
       python3 traffic_analyzer.py watch
       sudo python3 traffic_analyzer.py watch --live eth0
 
+  Look at the packets themselves, the way Wireshark does
+      python3 traffic_analyzer.py packets attack.pcap
+      python3 traffic_analyzer.py packets attack.pcap --filter "tcp.flags.syn == 1"
+      python3 traffic_analyzer.py packets attack.pcap --show 42
+      python3 traffic_analyzer.py packets attack.pcap --follow 42
+      python3 traffic_analyzer.py browse attack.pcap        the same, in a browser
+
   Check that websites are up and their certificates are not about to expire
       python3 traffic_analyzer.py sites shop.example.com mail.example.com
       python3 traffic_analyzer.py sites clients.txt --save
@@ -50,6 +57,18 @@ OPTIONS
   --ui FILE        path to traffic-analyzer-ui.html if it is not found automatically
   --open           open the browser once the view is up
   --top N          how many sources to print (default 12)
+
+OPTIONS FOR packets AND browse
+
+  --filter TEXT    a display filter, the same language Wireshark uses:
+                   ip.addr == 10.0.0.5, tcp.port == 443, tcp.flags.syn == 1,
+                   frame.len > 1400, joined with && || and !. A filter that
+                   does not parse is refused with the reason, never silently
+                   applied as "nothing matched".
+  --show N         take packet number N apart: layers, fields and bytes
+  --follow N       show the whole conversation packet N belongs to
+  --limit N        how many packets to print (default 40)
+  --keep N         how many bytes of each packet to hold on to (default 2048)
   --vt-key KEY     a VirusTotal key. With it, the flagged sources (and only those)
                    are looked up against VirusTotal to see if they are already
                    known attackers. Only the address is sent, never any traffic.
@@ -96,6 +115,10 @@ def main():
         return command_live(positional[1:], options)
     if command in ("watch", "serve", "--serve"):
         return command_watch(options)
+    if command == "packets":
+        return command_packets(positional[1:], options)
+    if command == "browse":
+        return command_browse(positional[1:], options)
     if command == "sites":
         return command_sites(positional[1:], options)
     if command in ("sessions", "--list"):
@@ -110,7 +133,8 @@ def parse_options(args):
     """Pull the --flags out, leave everything else alone."""
     takes_value = {"--html", "--json", "--db", "--seconds", "--log", "--port",
                    "--host", "--ui", "--top", "--note", "--live", "--history",
-                   "--notify-config", "--vt-key"}
+                   "--notify-config", "--vt-key", "--filter", "--show", "--follow",
+                   "--limit", "--keep"}
     options = {}
     positional = []
     index = 0
@@ -207,6 +231,257 @@ def command_file(positional, options):
         print("  See it again with: python3 traffic_analyzer.py watch")
     print()
     return 0
+
+
+# ---------------------------------------------------------------------------
+# The packet browser: every packet, filtered, and one packet in full
+# ---------------------------------------------------------------------------
+def load_packets(path, options, quiet=False):
+    """Read a capture keeping each packet, so it can be listed and shown."""
+    from trafficanalyzer import packets as packets_module
+
+    keep = int(options.get("keep") or packets_module.LIVE_SNAP)
+    log = packets_module.PacketLog(path=path)
+    stats = capture.ReadStats()
+    budget = packets_module.LIVE_BYTE_BUDGET
+    used = 0
+
+    if not quiet:
+        print("  Reading %s, keeping each packet so it can be looked at."
+              % os.path.basename(path))
+    try:
+        for packet in capture.read_packets(path, stats, keep_bytes=keep):
+            raw = packet.get("raw")
+            if raw is not None and used + len(raw) > budget:
+                raw = None                    # budget spent, keep counting anyway
+            elif raw is not None:
+                used += len(raw)
+            log.add(packet, caplen=packet.get("caplen"), link=packet.get("link"), raw=raw)
+    except capture.CaptureError as exc:
+        print("Could not read that capture: %s" % exc)
+        return None, None
+    return log, stats
+
+
+def command_packets(positional, options):
+    """List packets in the terminal, the way tshark does, with a filter."""
+    from trafficanalyzer import filters, packets as packets_module
+
+    if not positional:
+        print("Which capture? Try: python3 traffic_analyzer.py packets attack.pcap")
+        print("Then narrow it down:  --filter \"tcp.port == 443 && tcp.flags.syn == 1\"")
+        return 2
+    path = positional[0]
+    if not os.path.exists(path):
+        print("No such file: %s" % path)
+        return 2
+
+    log, _stats = load_packets(path, options)
+    if log is None:
+        return 2
+
+    # Showing one packet in full, or following a whole conversation, are both
+    # about a single packet number, so they come before the list.
+    if options.get("show"):
+        return show_one_packet(log, int(options["show"]))
+    if options.get("follow"):
+        return follow_stream(log, int(options["follow"]))
+
+    filter_text = options.get("filter") or ""
+    if filter_text is True:
+        filter_text = ""
+    try:
+        match = filters.compile_filter(filter_text)
+    except filters.FilterError as exc:
+        print()
+        print("  That filter did not parse, so nothing was filtered.")
+        print("  %s" % exc.message)
+        if exc.hint:
+            print("  %s" % exc.hint)
+        print()
+        return 2
+
+    def payload_of(record):
+        data, _note = log.frame_bytes(record["n"])
+        return data
+
+    limit = int(options.get("limit") or 40)
+    # Seconds since the first packet, the way every packet tool shows it. An
+    # absolute epoch stamp is 17 characters of noise nobody reads.
+    start = log.records[0]["ts"] if log.records else 0.0
+
+    print()
+    if filter_text:
+        reading = filters.describe(filter_text)
+        print("  Showing packets where %s." % reading)
+    print("  %-7s %-10s %-21s %-21s %-8s %s"
+          % ("NO", "TIME", "FROM", "TO", "PROTOCOL", "WHAT"))
+    print("  " + "-" * 100)
+
+    shown = matched = 0
+    for record in log.records:
+        try:
+            if not match(record, payload_of):
+                continue
+        except Exception:
+            continue
+        matched += 1
+        if shown >= limit:
+            continue
+        shown += 1
+        print("  %-7d %-10.3f %-21s %-21s %-8s %s"
+              % (record["n"], record["ts"] - start, _endpoint(record, "src"),
+                 _endpoint(record, "dst"), packets_module.proto_name(record["proto"]),
+                 packets_module.summary(record)))
+
+    print()
+    print("  %s of %s packets matched%s."
+          % ("{:,}".format(matched), "{:,}".format(len(log)),
+             (", showing the first %d" % shown) if matched > shown else ""))
+    if log.dropped:
+        print("  %s further packets were read but not kept, so this list stops there."
+              % "{:,}".format(log.dropped))
+    print()
+    print("  Look at one:      python3 traffic_analyzer.py packets %s --show 1" % path)
+    print("  Follow its chat:  python3 traffic_analyzer.py packets %s --follow 1" % path)
+    print("  In the browser:   python3 traffic_analyzer.py browse %s" % path)
+    print()
+    return 0
+
+
+def _endpoint(record, side):
+    address = record.get(side, "")
+    port = record.get("sport" if side == "src" else "dport")
+    return "%s:%s" % (address, port) if port is not None else address
+
+
+def show_one_packet(log, number):
+    """One packet, taken apart: what it is doing, its layers, and its bytes."""
+    from trafficanalyzer import packets as packets_module
+
+    record = log.get(number)
+    if record is None:
+        print("There is no packet number %d. This capture has %s."
+              % (number, "{:,}".format(len(log))))
+        return 2
+
+    print()
+    print("=" * 74)
+    print("  Packet %d of %s" % (number, "{:,}".format(len(log))))
+    print("=" * 74)
+    print()
+    print("  %-12s %s" % ("From:", _endpoint(record, "src")))
+    print("  %-12s %s" % ("To:", _endpoint(record, "dst")))
+    print("  %-12s %s" % ("Protocol:", packets_module.proto_name(record["proto"])))
+    print("  %-12s %s bytes on the wire" % ("Size:", "{:,}".format(record["size"])))
+    print("  %-12s %s" % ("Conversation:", record["stream"]))
+    print()
+    for line in report.wrap(packets_module.explain(record), 70):
+        print("  " + line)
+    print()
+
+    data, note = log.frame_bytes(number)
+    if note:
+        for line in report.wrap(note, 70):
+            print("  " + line)
+        print()
+    if not data:
+        return 0
+
+    print("  How it is put together")
+    print("  " + "-" * 70)
+    for layer in packets_module.dissect(data, record.get("link") or 1):
+        print("  %s  (bytes %d to %d)  %s"
+              % (layer["name"], layer["start"], layer["start"] + layer["length"] - 1,
+                 layer["summary"]))
+        for field in layer.get("fields", []):
+            print("      %-20s %s" % (field["name"] + ":", field["value"]))
+            if field.get("note"):
+                for line in report.wrap(field["note"], 58):
+                    print("          %s" % line)
+        if layer.get("text"):
+            print("      readable text:")
+            for line in layer["text"].splitlines()[:12]:
+                print("          %s" % line[:70])
+    print()
+    print("  The bytes themselves")
+    print("  " + "-" * 70)
+    for line in packets_module.hexdump(data):
+        print("  %04x  %-49s  %s" % (line["offset"], line["hex"], line["text"]))
+    print()
+    return 0
+
+
+def follow_stream(log, number):
+    """Everything both sides said in one conversation, in order."""
+    from trafficanalyzer import packets as packets_module
+
+    record = log.get(number)
+    if record is None:
+        print("There is no packet number %d." % number)
+        return 2
+    members = log.stream(number)
+    entry = log.stream_list[record["stream"]]
+
+    print()
+    print("=" * 74)
+    print("  Conversation %d: %s and %s" % (record["stream"],
+                                            _pair(entry["a"], entry.get("a_port")),
+                                            _pair(entry["b"], entry.get("b_port"))))
+    print("=" * 74)
+    print()
+    print("  %s packets, %s bytes, over %.3f seconds."
+          % ("{:,}".format(entry["packets"]), "{:,}".format(entry["bytes"]),
+             max(entry["last"] - entry["first"], 0)))
+    print()
+
+    a_side = (entry["a"], entry.get("a_port"))
+    for member in members[:200]:
+        arrow = "->" if (member["src"], member.get("sport")) == a_side else "<-"
+        print("  %-7d %s  %s" % (member["n"], arrow, packets_module.summary(member)))
+        data, _note = log.frame_bytes(member["n"])
+        if not data:
+            continue
+        for layer in packets_module.dissect(data, member.get("link") or 1):
+            if layer["name"] == "Payload" and layer.get("text"):
+                for line in layer["text"].splitlines()[:6]:
+                    if line.strip():
+                        print("              %s" % line[:66])
+    if len(members) > 200:
+        print("  ... and %d more packets in this conversation." % (len(members) - 200))
+    print()
+    return 0
+
+
+def _pair(address, port):
+    return "%s:%s" % (address, port) if port is not None else address
+
+
+def command_browse(positional, options):
+    """Load a capture and open the packet browser on it."""
+    from trafficanalyzer import server
+
+    if not positional:
+        print("Which capture? Try: python3 traffic_analyzer.py browse attack.pcap")
+        return 2
+    path = positional[0]
+    if not os.path.exists(path):
+        print("No such file: %s" % path)
+        return 2
+
+    log, _stats = load_packets(path, options)
+    if log is None:
+        return 2
+    if not len(log):
+        print("Nothing usable in that capture, so there is nothing to browse.")
+        return 1
+
+    db_path = options.get("db") or store_module.DEFAULT_PATH
+    port = int(options.get("port") or 8724)
+    host = options.get("host") or "127.0.0.1"
+    return server.serve(db_path, host=host, port=port, ui_path=options.get("ui"),
+                        open_browser=bool(options.get("open")),
+                        packet_log=log, landing="/packets")
 
 
 def enrich_reputation(summary, options):

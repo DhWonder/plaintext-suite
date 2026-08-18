@@ -133,6 +133,62 @@ into its Linux half and its Windows half.
 
 ---
 
+## Looking at the packets themselves
+
+The report above answers "who is attacking me". Sometimes the question is "show me
+the actual packet", and for that there is a packet browser:
+
+```
+python3 traffic_analyzer.py packets attack.pcap
+python3 traffic_analyzer.py packets attack.pcap --filter "tcp.flags.syn == 1"
+python3 traffic_analyzer.py packets attack.pcap --show 42     one packet, taken apart
+python3 traffic_analyzer.py packets attack.pcap --follow 42   the whole conversation
+python3 traffic_analyzer.py browse attack.pcap                the same in a browser
+```
+
+The browser view is the arrangement every packet tool has used since the nineties,
+because it is the right one: the list of packets, one packet taken apart, and the
+bytes underneath. Clicking a field highlights the bytes it came from.
+
+**The filter box speaks Wireshark's language**, because anybody who has used
+Wireshark already knows it:
+
+```
+ip.addr == 45.9.0.1
+tcp.port == 443 && tcp.flags.syn == 1
+ip.src == 10.0.0.5 and not icmp
+frame.len > 1400
+tcp.stream == 7
+payload contains "GET /admin"
+```
+
+The fields are `ip.src`, `ip.dst`, `ip.addr`, `ip.ttl`, `ip.version`, `frame.number`,
+`frame.len`, `frame.time`, `tcp.srcport`, `tcp.dstport`, `tcp.port`, `tcp.stream`,
+`tcp.flags` and its `.syn` `.ack` `.fin` `.rst` `.psh` `.urg` bits, `udp.srcport`,
+`udp.dstport`, `udp.port`, `icmp.type` and `payload`. Bare `tcp`, `udp`, `icmp`,
+`ipv6` work on their own. It is a small language on purpose: a filter box that
+accepts a field it cannot evaluate, and then matches nothing, is worse than one
+that says "I do not know that field" and names the ones it does.
+
+**A filter that will not parse never runs.** It comes back with the reason and a
+pointer at the field you probably meant, and the packet list stays exactly as it
+was. This matters more than it sounds: silently showing zero packets is how
+somebody concludes there was no attack.
+
+Two honest limits:
+
+- **It is not Wireshark.** Wireshark dissects two thousand protocols. This decodes
+  what the rest of the tool already understands, which is Ethernet, IPv4, IPv6,
+  TCP, UDP and ICMP, and shows everything above that as bytes with a guess at what
+  they are. For working out who is attacking you that is enough.
+- **Keeping the packets costs memory, so it is opt-in.** The analyser counts packets
+  and throws them away, which is why it reads a capture bigger than memory. The
+  `packets` and `browse` commands hold on to them, up to 2048 bytes each and a
+  total budget, and say plainly when a capture was large enough that the list
+  stops short.
+
+---
+
 ## Asking VirusTotal about the flagged sources
 
 The scoring above needs no internet: it decides who is a problem from the traffic
@@ -253,13 +309,18 @@ trafficanalyzer/
   server.py                 the local web server and JSON API
   services.py               website reachability and certificate checks
   reputation.py             the VirusTotal address lookups, paced and cached
+  packets.py                the packet log, conversations, and the dissector
+  filters.py                the Wireshark style display filter language
   report.py                 the terminal report and the HTML dashboard
   notify.py                 the notification email, shared with the other tools
+web/
+  traffic-analyzer-packets.html   the packet browser page
 tests/
   make_test_captures.py     builds a capture in every supported shape
   test_capture.py           proves the reader handles all of them
   test_parity.py            proves both engines agree
   test_reputation.py        proves the VirusTotal lookups behave, offline
+  test_packets.py           proves the filters and the dissector tell the truth
 make_sample_attack.py       builds the synthetic attack used in the demo
 samples/attack.pcap         that attack, ready to run
 ```

@@ -134,13 +134,21 @@ def _open_maybe_gzip(path, stats):
     return fh
 
 
-def read_packets(path, stats=None, progress=None):
+def read_packets(path, stats=None, progress=None, keep_bytes=0):
     """Yield one dictionary per usable packet, in file order.
 
     Streams the file rather than loading it, so a capture larger than memory
     is fine. The dictionary is deliberately flat and boring:
 
         ts, src, dst, proto, ttl, size, sport, dport, flags, family
+
+    `keep_bytes` is off by default, and that default is the one the analyser
+    uses: it counts packets and never needs to see them again. Pass a number and
+    each packet also carries `raw`, the first that many bytes of the frame, and
+    `caplen`, how much of it the capture actually saved. That is what the packet
+    browser needs to show you the packet itself, and it is opt-in because
+    holding on to the bytes is the one thing that makes this reader use memory
+    in proportion to the file.
     """
     if stats is None:
         stats = ReadStats()
@@ -153,12 +161,12 @@ def read_packets(path, stats=None, progress=None):
 
         if magic == b"\x0a\x0d\x0d\x0a":
             stats.format = "pcapng"
-            for item in _read_pcapng(fh, stats, progress):
+            for item in _read_pcapng(fh, stats, progress, keep_bytes):
                 yield item
         elif magic in (b"\xa1\xb2\xc3\xd4", b"\xd4\xc3\xb2\xa1",
                        b"\xa1\xb2\x3c\x4d", b"\x4d\x3c\xb2\xa1"):
             stats.format = "pcap"
-            for item in _read_pcap(fh, magic, stats, progress):
+            for item in _read_pcap(fh, magic, stats, progress, keep_bytes):
                 yield item
         else:
             raise CaptureError(
@@ -171,7 +179,7 @@ def read_packets(path, stats=None, progress=None):
 # ---------------------------------------------------------------------------
 # Classic pcap: a 24 byte file header, then 16 bytes and a frame, over and over.
 # ---------------------------------------------------------------------------
-def _read_pcap(fh, magic, stats, progress):
+def _read_pcap(fh, magic, stats, progress, keep_bytes=0):
     rest = fh.read(20)
     if len(rest) < 20:
         raise CaptureError("That file has a capture header but nothing after it.")
@@ -215,6 +223,10 @@ def _read_pcap(fh, magic, stats, progress):
         packet = parse_frame(data, 0, len(data), link_type, stats)
         if packet is not None:
             packet["ts"] = ts_sec + ts_frac / divisor
+            if keep_bytes:
+                packet["raw"] = bytes(data[:keep_bytes])
+                packet["caplen"] = incl_len
+                packet["link"] = link_type
             stats.used += 1
             yield packet
         if progress is not None and (stats.frames & 0x3FFF) == 0:
@@ -237,7 +249,7 @@ BLOCK_NRB = 0x00000004
 BLOCK_EPB = 0x00000006
 
 
-def _read_pcapng(fh, stats, progress):
+def _read_pcapng(fh, stats, progress, keep_bytes=0):
     read = fh.read
     interfaces = []          # per interface: link type and timestamp resolution
     endian = "<"
@@ -324,6 +336,10 @@ def _read_pcapng(fh, stats, progress):
                 packet = parse_frame(body, 20, incl_len, iface["link_type"], stats)
                 if packet is not None:
                     packet["ts"] = ((ts_hi << 32) | ts_lo) / iface["resolution"]
+                    if keep_bytes:
+                        packet["raw"] = bytes(body[20:20 + min(incl_len, keep_bytes)])
+                        packet["caplen"] = incl_len
+                        packet["link"] = iface["link_type"]
                     stats.used += 1
                     yield packet
 
@@ -337,6 +353,10 @@ def _read_pcapng(fh, stats, progress):
             if packet is not None:
                 packet["ts"] = 0.0
                 packet["no_time"] = True
+                if keep_bytes:
+                    packet["raw"] = bytes(body[4:4 + min(len(body) - 4, keep_bytes)])
+                    packet["caplen"] = len(body) - 4
+                    packet["link"] = iface["link_type"]
                 stats.used += 1
                 yield packet
 
@@ -352,6 +372,10 @@ def _read_pcapng(fh, stats, progress):
                 packet = parse_frame(body, 20, incl_len, iface["link_type"], stats)
                 if packet is not None:
                     packet["ts"] = ((ts_hi << 32) | ts_lo) / iface["resolution"]
+                    if keep_bytes:
+                        packet["raw"] = bytes(body[20:20 + min(incl_len, keep_bytes)])
+                        packet["caplen"] = incl_len
+                        packet["link"] = iface["link_type"]
                     stats.used += 1
                     yield packet
 

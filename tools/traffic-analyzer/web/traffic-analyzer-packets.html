@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>traffic-analyzer packets</title>
+<link rel="icon" href="data:,">
+<!--
+  The packet browser.
+
+  Three panes, the way every packet tool has done it since the nineties, because
+  the arrangement is right: the list of packets, one packet taken apart, and the
+  bytes underneath. Clicking a field highlights the bytes it came from.
+
+  This page decides nothing. The filtering and the decoding happen in the Python
+  on 127.0.0.1, which is the same code the command line uses, so the browser can
+  never disagree with the terminal about what a packet is. Nothing is uploaded:
+  the only thing listening is the tool on this machine.
+-->
+<style>
+ :root{--bg:#0B1220;--bg2:#0F1829;--surface:#121C2F;--line:rgba(255,255,255,.09);
+   --line2:rgba(255,255,255,.16);--text:#E8EEF7;--muted:#93A4BF;--cyan:#22D3EE;--violet:#A78BFA;
+   --mint:#34D399;--red:#FB7185;--amber:#FBBF24;}
+ *{margin:0;padding:0;box-sizing:border-box}
+ body{background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,'Segoe UI',sans-serif;
+   line-height:1.5;-webkit-text-size-adjust:100%;height:100vh;display:flex;flex-direction:column;
+   overflow:hidden}
+ .mono{font-family:'JetBrains Mono','SF Mono',Menlo,Consolas,monospace}
+ a{color:var(--cyan)}
+
+ header{border-bottom:1px solid var(--line);padding:10px 16px;display:flex;align-items:center;
+   justify-content:space-between;gap:12px;flex-wrap:wrap;flex-shrink:0}
+ .logo{font-size:1.02rem;font-weight:700;font-family:'JetBrains Mono',monospace;white-space:nowrap}
+ .logo b{background:linear-gradient(90deg,var(--cyan),var(--violet));-webkit-background-clip:text;
+   background-clip:text;color:transparent}
+ .where{font-size:.78rem;color:var(--muted)}
+ .where b{color:var(--text);font-weight:600}
+
+ /* filter bar */
+ .filterbar{padding:10px 16px;border-bottom:1px solid var(--line);display:flex;gap:8px;
+   align-items:flex-start;flex-shrink:0;flex-wrap:wrap}
+ .fwrap{flex:1;min-width:260px;position:relative}
+ #filter{width:100%;background:var(--bg2);border:1.5px solid var(--line);border-radius:9px;
+   color:var(--text);padding:9px 12px;font-size:.85rem;
+   font-family:'JetBrains Mono','SF Mono',Menlo,Consolas,monospace}
+ #filter:focus{outline:none;border-color:var(--cyan)}
+ #filter.bad{border-color:var(--red);background:rgba(251,113,133,.06)}
+ #filter.good{border-color:rgba(52,211,153,.5)}
+ .btn{background:linear-gradient(135deg,var(--cyan),var(--violet));color:#06121C;border:none;
+   border-radius:9px;padding:9px 18px;font-weight:700;font-size:.85rem;cursor:pointer;
+   white-space:nowrap}
+ .btn:hover{filter:brightness(1.08)}
+ .btn.sec{background:none;border:1px solid var(--line2);color:var(--text);font-weight:600}
+ .reading{font-size:.76rem;color:var(--muted);margin-top:5px;min-height:1em}
+ .reading.err{color:#FDA4AF}
+ .reading .hint{color:var(--muted);opacity:.85}
+
+ .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
+ .chip{font-size:.72rem;background:var(--surface);border:1px solid var(--line);border-radius:99px;
+   padding:3px 10px;cursor:pointer;color:var(--muted);font-family:'JetBrains Mono',monospace}
+ .chip:hover{border-color:var(--cyan);color:var(--text)}
+
+ /* layout */
+ .panes{flex:1;display:grid;grid-template-rows:1.15fr 1fr;min-height:0}
+ .listpane{overflow:auto;border-bottom:1px solid var(--line2);min-height:0}
+ .lower{display:grid;grid-template-columns:1.25fr 1fr;min-height:0}
+ @media(max-width:900px){.lower{grid-template-columns:1fr;grid-template-rows:1fr 1fr}}
+ .detail,.bytes{overflow:auto;min-height:0;padding:12px 14px}
+ .detail{border-right:1px solid var(--line)}
+
+ table{width:100%;border-collapse:collapse;font-size:.8rem}
+ thead th{position:sticky;top:0;background:var(--bg2);text-align:left;padding:7px 9px;
+   color:var(--muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;
+   border-bottom:1px solid var(--line2);white-space:nowrap;z-index:2}
+ td{padding:5px 9px;border-bottom:1px solid rgba(255,255,255,.045);white-space:nowrap}
+ tbody tr{cursor:pointer}
+ tbody tr:hover{background:rgba(34,211,238,.07)}
+ tbody tr.sel{background:rgba(34,211,238,.14);box-shadow:inset 2px 0 0 var(--cyan)}
+ .num{font-family:'JetBrains Mono',monospace;color:var(--muted)}
+ .addr{font-family:'JetBrains Mono',monospace;color:var(--cyan)}
+ .what{font-family:'JetBrains Mono',monospace;white-space:nowrap;overflow:hidden;
+   text-overflow:ellipsis;max-width:36ch}
+ tr.syn .what{color:var(--amber)}
+ tr.rst .what{color:var(--red)}
+ tr.icmp .what{color:var(--violet)}
+ .pill{display:inline-block;padding:1px 7px;border-radius:99px;font-size:.66rem;font-weight:700}
+ .p-tcp{background:rgba(34,211,238,.14);color:var(--cyan)}
+ .p-udp{background:rgba(167,139,250,.16);color:var(--violet)}
+ .p-icmp{background:rgba(251,191,36,.15);color:var(--amber)}
+ .p-other{background:rgba(255,255,255,.07);color:var(--muted)}
+
+ h3{font-size:.72rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);
+   margin-bottom:8px;font-weight:700}
+ .explain{background:rgba(34,211,238,.06);border:1px solid rgba(34,211,238,.2);border-radius:9px;
+   padding:9px 12px;font-size:.83rem;margin-bottom:12px;color:#BAE6FD}
+ .note{background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.25);border-radius:9px;
+   padding:8px 11px;font-size:.78rem;margin-bottom:10px;color:#FDE68A}
+
+ .layer{margin-bottom:9px;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+ .layer>.head{background:var(--bg2);padding:6px 10px;font-size:.8rem;cursor:pointer;
+   display:flex;justify-content:space-between;gap:10px;align-items:center}
+ .layer>.head b{font-family:'JetBrains Mono',monospace}
+ .layer>.head span{color:var(--muted);font-size:.74rem;overflow:hidden;text-overflow:ellipsis;
+   white-space:nowrap}
+ .fields{padding:4px 0;display:none}
+ .layer.open .fields{display:block}
+ .frow{display:grid;grid-template-columns:9.5rem 1fr;gap:4px 10px;padding:3px 10px;font-size:.78rem;
+   cursor:pointer;border-left:2px solid transparent}
+ .frow:hover{background:rgba(34,211,238,.07);border-left-color:var(--cyan)}
+ .frow.sel{background:rgba(34,211,238,.13);border-left-color:var(--cyan)}
+ .frow .k{color:var(--muted)}
+ .frow .v{font-family:'JetBrains Mono',monospace;word-break:break-all}
+ .frow .n{grid-column:2;color:var(--muted);font-size:.73rem;font-style:normal}
+
+ .hex{font-family:'JetBrains Mono','SF Mono',Menlo,Consolas,monospace;font-size:.76rem;
+   line-height:1.65;white-space:pre}
+ .hex .off{color:var(--muted)}
+ .hex .by{color:var(--text)}
+ .hex .tx{color:var(--muted)}
+ .hex em{font-style:normal;background:rgba(34,211,238,.28);border-radius:2px}
+
+ .empty{color:var(--muted);font-size:.83rem;padding:14px}
+ .bar{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 16px;
+   border-top:1px solid var(--line);font-size:.78rem;color:var(--muted);flex-shrink:0;flex-wrap:wrap}
+ .bar b{color:var(--text)}
+ .links{display:flex;gap:8px;flex-wrap:wrap}
+ .lk{font-size:.75rem;background:var(--surface);border:1px solid var(--line);border-radius:7px;
+   padding:4px 10px;cursor:pointer;color:var(--text)}
+ .lk:hover{border-color:var(--cyan)}
+
+ /* follow stream overlay */
+ .veil{position:fixed;inset:0;background:rgba(4,8,16,.72);display:none;z-index:40}
+ .veil.on{display:block}
+ .sheet{position:fixed;right:0;top:0;bottom:0;width:min(760px,100%);background:var(--bg2);
+   border-left:1px solid var(--line2);z-index:41;display:none;flex-direction:column}
+ .sheet.on{display:flex}
+ .sheet header{border-bottom:1px solid var(--line)}
+ .sheet .body{overflow:auto;padding:14px 16px;flex:1}
+ .turn{margin-bottom:8px;font-size:.79rem}
+ .turn .meta{color:var(--muted);font-family:'JetBrains Mono',monospace;font-size:.73rem;
+   cursor:pointer}
+ .turn .meta:hover{color:var(--cyan)}
+ .turn pre{margin-top:3px;padding:7px 10px;border-radius:7px;white-space:pre-wrap;word-break:break-all;
+   font-family:'JetBrains Mono',monospace;font-size:.75rem;line-height:1.5}
+ .turn.a pre{background:rgba(34,211,238,.08);border-left:2px solid var(--cyan)}
+ .turn.b pre{background:rgba(167,139,250,.09);border-left:2px solid var(--violet)}
+ .x{background:none;border:1px solid var(--line2);color:var(--text);border-radius:7px;
+   padding:5px 11px;cursor:pointer;font-size:.8rem}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">traffic<b>-</b>analyzer <span style="color:var(--muted);font-weight:400">packets</span></div>
+  <div class="where" id="where">loading...</div>
+</header>
+
+<div class="filterbar">
+  <div class="fwrap">
+    <input id="filter" spellcheck="false" autocomplete="off"
+           placeholder='ip.addr == 10.0.0.5 && tcp.port == 443'>
+    <div class="reading" id="reading"></div>
+    <div class="chips" id="chips"></div>
+  </div>
+  <button class="btn" id="apply">Filter</button>
+  <button class="btn sec" id="clear">Clear</button>
+</div>
+
+<div class="panes">
+  <div class="listpane" id="listpane">
+    <table>
+      <thead><tr>
+        <th>No</th><th>Time</th><th>From</th><th>To</th><th>Protocol</th><th>Length</th><th>What it is doing</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="empty" id="listEmpty">Reading...</div>
+  </div>
+
+  <div class="lower">
+    <div class="detail" id="detail">
+      <div class="empty">Click a packet above to take it apart.</div>
+    </div>
+    <div class="bytes" id="bytes">
+      <div class="empty">The packet's own bytes appear here.</div>
+    </div>
+  </div>
+</div>
+
+<div class="bar">
+  <div id="counts">&nbsp;</div>
+  <div class="links" id="links"></div>
+</div>
+
+<div class="veil" id="veil"></div>
+<div class="sheet" id="sheet">
+  <header>
+    <div class="logo" id="sheetTitle">Conversation</div>
+    <button class="x" id="closeSheet">Close</button>
+  </header>
+  <div class="body" id="sheetBody"></div>
+</div>
+
+<script>
+"use strict";
+
+function $(id){ return document.getElementById(id); }
+function esc(s){ return String(s == null ? "" : s)
+  .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+var state = { rows: [], selected: null, detail: null, start: 0, limit: 200, offset: 0 };
+
+// The filter box remembers nothing between loads on purpose, but the address
+// the other views link in with arrives in the URL.
+var params = new URLSearchParams(location.search);
+if (params.get("filter")) { $("filter").value = params.get("filter"); }
+
+var SUGGESTIONS = [
+  "tcp.flags.syn == 1 && tcp.flags.ack == 0",
+  "tcp.flags.rst == 1",
+  "icmp",
+  "udp && frame.len > 100",
+  "tcp.port == 443",
+  "frame.len > 1400"
+];
+
+function drawChips(){
+  $("chips").innerHTML = SUGGESTIONS.map(function(s){
+    return '<span class="chip" data-f="' + esc(s) + '">' + esc(s) + '</span>';
+  }).join("");
+  Array.prototype.forEach.call(document.querySelectorAll(".chip"), function(chip){
+    chip.addEventListener("click", function(){
+      $("filter").value = this.getAttribute("data-f");
+      load();
+    });
+  });
+}
+
+function protoPill(name){
+  var cls = "p-other";
+  if (name === "TCP") cls = "p-tcp";
+  else if (name === "UDP") cls = "p-udp";
+  else if (name === "ICMP" || name === "ICMPv6") cls = "p-icmp";
+  return '<span class="pill ' + cls + '">' + esc(name) + '</span>';
+}
+
+function endpoint(addr, port){
+  return port === null || port === undefined ? esc(addr) : esc(addr) + ":" + esc(port);
+}
+
+function rowClass(r){
+  if (r.proto === 1 || r.proto === 58) return "icmp";
+  if (r.proto === 6){
+    if (r.flags & 0x04) return "rst";
+    if ((r.flags & 0x02) && !(r.flags & 0x10)) return "syn";
+  }
+  return "";
+}
+
+function load(){
+  var text = $("filter").value;
+  var url = "/api/packets?limit=" + state.limit + "&offset=" + state.offset +
+            "&filter=" + encodeURIComponent(text);
+  $("listEmpty").style.display = "block";
+  $("listEmpty").textContent = "Filtering...";
+  fetch(url).then(function(r){ return r.json(); }).then(function(res){
+    if (res.error && res.bad_filter){
+      $("filter").className = "bad";
+      $("reading").className = "reading err";
+      $("reading").innerHTML = esc(res.error) +
+        (res.hint ? ' <span class="hint">' + esc(res.hint) + "</span>" : "");
+      $("listEmpty").style.display = "none";
+      // The list is deliberately left exactly as it was. Showing zero packets
+      // because a filter would not parse is how somebody concludes there was
+      // no attack.
+      return;
+    }
+    if (res.error){
+      $("listEmpty").textContent = res.error;
+      return;
+    }
+    $("filter").className = text ? "good" : "";
+    $("reading").className = "reading";
+    $("reading").textContent = text ? ("Showing packets where " + res.reading + ".") : "";
+    state.rows = res.rows;
+    if (res.rows.length && !state.start) state.start = res.rows[0].ts;
+    drawRows(res);
+  }).catch(function(){
+    $("listEmpty").textContent = "Could not reach the tool. Is it still running?";
+  });
+}
+
+function drawRows(res){
+  var start = state.start || (res.rows.length ? res.rows[0].ts : 0);
+  var html = res.rows.map(function(r){
+    return '<tr class="' + rowClass(r) + '" data-n="' + r.n + '">' +
+      '<td class="num">' + r.n + '</td>' +
+      '<td class="num">' + (r.ts - start).toFixed(3) + '</td>' +
+      '<td class="addr">' + endpoint(r.src, r.sport) + '</td>' +
+      '<td class="addr">' + endpoint(r.dst, r.dport) + '</td>' +
+      '<td>' + protoPill(r.protocol) + '</td>' +
+      '<td class="num">' + r.size + '</td>' +
+      '<td class="what">' + esc(r.summary) + '</td></tr>';
+  }).join("");
+  $("rows").innerHTML = html;
+  $("listEmpty").style.display = res.rows.length ? "none" : "block";
+  if (!res.rows.length){
+    $("listEmpty").textContent = res.matched === 0
+      ? "No packet matches that filter. The filter is valid, there is simply nothing like it here."
+      : "Nothing to show.";
+  }
+
+  var counts = "<b>" + res.matched.toLocaleString() + "</b> of <b>" +
+               res.total.toLocaleString() + "</b> packets match";
+  if (res.matched > res.rows.length){
+    counts += ", showing " + (res.offset + 1) + " to " + (res.offset + res.rows.length);
+  }
+  if (res.dropped){
+    counts += ". " + res.dropped.toLocaleString() +
+              " more were read but not kept, so this list stops there";
+  }
+  $("counts").innerHTML = counts + ".";
+
+  Array.prototype.forEach.call($("rows").querySelectorAll("tr"), function(tr){
+    tr.addEventListener("click", function(){ select(parseInt(this.getAttribute("data-n"), 10)); });
+  });
+
+  drawPager(res);
+}
+
+function drawPager(res){
+  var links = [];
+  if (res.offset > 0) links.push('<span class="lk" data-page="prev">&larr; earlier</span>');
+  if (res.offset + res.rows.length < res.matched)
+    links.push('<span class="lk" data-page="next">later &rarr;</span>');
+  $("links").innerHTML = links.join("");
+  Array.prototype.forEach.call($("links").querySelectorAll(".lk"), function(el){
+    el.addEventListener("click", function(){
+      var dir = this.getAttribute("data-page");
+      state.offset = dir === "next" ? state.offset + state.limit
+                                    : Math.max(0, state.offset - state.limit);
+      load();
+    });
+  });
+}
+
+function select(n){
+  state.selected = n;
+  Array.prototype.forEach.call($("rows").querySelectorAll("tr"), function(tr){
+    tr.classList.toggle("sel", parseInt(tr.getAttribute("data-n"), 10) === n);
+  });
+  fetch("/api/packet/" + n).then(function(r){ return r.json(); }).then(function(res){
+    if (res.error){ $("detail").innerHTML = '<div class="empty">' + esc(res.error) + "</div>"; return; }
+    state.detail = res;
+    drawDetail(res);
+    drawBytes(res, null);
+  });
+}
+
+function drawDetail(res){
+  var p = res.packet;
+  var html = '<div class="explain">' + esc(res.explain) + "</div>";
+  if (res.note) html += '<div class="note">' + esc(res.note) + "</div>";
+
+  html += '<h3>How it is put together</h3>';
+  res.layers.forEach(function(layer, index){
+    html += '<div class="layer open" data-layer="' + index + '">' +
+      '<div class="head"><b>' + esc(layer.name) + '</b><span>' + esc(layer.summary || "") + '</span></div>' +
+      '<div class="fields">';
+    (layer.fields || []).forEach(function(f){
+      html += '<div class="frow" data-start="' + f.start + '" data-len="' + f.length + '">' +
+        '<div class="k">' + esc(f.name) + '</div>' +
+        '<div class="v">' + esc(f.value) + '</div>' +
+        (f.note ? '<div class="n">' + esc(f.note) + "</div>" : "") +
+        "</div>";
+    });
+    if (layer.text){
+      html += '<div class="frow" data-start="' + layer.start + '" data-len="' + layer.length + '">' +
+        '<div class="k">readable text</div><div class="v">' +
+        esc(layer.text.slice(0, 600)) + "</div></div>";
+    }
+    html += "</div></div>";
+  });
+
+  html += '<h3 style="margin-top:12px">Follow it</h3><div class="links">' +
+    '<span class="lk" id="followBtn">See this whole conversation</span>' +
+    '<span class="lk" id="srcBtn">Only ' + esc(p.src) + '</span>' +
+    '<span class="lk" id="pairBtn">Only these two</span>' +
+    "</div>";
+
+  $("detail").innerHTML = html;
+
+  Array.prototype.forEach.call($("detail").querySelectorAll(".head"), function(head){
+    head.addEventListener("click", function(){ this.parentNode.classList.toggle("open"); });
+  });
+  Array.prototype.forEach.call($("detail").querySelectorAll(".frow"), function(row){
+    row.addEventListener("click", function(){
+      Array.prototype.forEach.call($("detail").querySelectorAll(".frow"), function(other){
+        other.classList.remove("sel");
+      });
+      this.classList.add("sel");
+      drawBytes(state.detail, {
+        start: parseInt(this.getAttribute("data-start"), 10),
+        len: parseInt(this.getAttribute("data-len"), 10)
+      });
+    });
+  });
+
+  $("followBtn").addEventListener("click", function(){ followStream(p.n); });
+  $("srcBtn").addEventListener("click", function(){
+    $("filter").value = "ip.addr == " + p.src; state.offset = 0; load();
+  });
+  $("pairBtn").addEventListener("click", function(){
+    $("filter").value = "ip.addr == " + p.src + " && ip.addr == " + p.dst;
+    state.offset = 0; load();
+  });
+}
+
+function drawBytes(res, highlight){
+  var lines = res.hex || [];
+  if (!lines.length){
+    $("bytes").innerHTML = '<div class="empty">The bytes for this packet were not kept.</div>';
+    return;
+  }
+  var from = highlight ? highlight.start : -1;
+  var to = highlight ? highlight.start + highlight.len : -1;
+
+  var html = '<h3>The bytes themselves</h3><div class="hex">';
+  lines.forEach(function(line){
+    var bytesHtml = "";
+    // Rebuild the hex column byte by byte so the highlight lands exactly on the
+    // field that was clicked, gap and all.
+    var pairs = line.hex.replace(/\s+/g, " ").trim().split(" ");
+    pairs.forEach(function(pair, i){
+      var at = line.offset + i;
+      var on = at >= from && at < to;
+      bytesHtml += (i === 8 ? "  " : (i ? " " : "")) +
+                   (on ? "<em>" + pair + "</em>" : pair);
+    });
+    var textHtml = "";
+    for (var i = 0; i < line.text.length; i++){
+      var at = line.offset + i;
+      var ch = esc(line.text[i]);
+      textHtml += (at >= from && at < to) ? "<em>" + ch + "</em>" : ch;
+    }
+    html += '<span class="off">' + ("000" + line.offset.toString(16)).slice(-4) + "</span>  " +
+            '<span class="by">' + bytesHtml + "</span>" +
+            "  <span class=\"tx\">" + textHtml + "</span>\n";
+  });
+  html += "</div>";
+  $("bytes").innerHTML = html;
+}
+
+// ---- follow a conversation ----------------------------------------------
+function followStream(n){
+  fetch("/api/packet/" + n + "/stream").then(function(r){ return r.json(); }).then(function(res){
+    if (res.error){ return; }
+    var c = res.conversation;
+    $("sheetTitle").textContent = "Conversation " + res.stream;
+    var head = '<div class="explain">' +
+      esc(c.a) + (c.a_port != null ? ":" + c.a_port : "") + " and " +
+      esc(c.b) + (c.b_port != null ? ":" + c.b_port : "") + " &mdash; " +
+      c.packets.toLocaleString() + " packets, " + c.bytes.toLocaleString() + " bytes." +
+      "</div>";
+    var body = res.packets.map(function(p){
+      var side = p.from_a ? "a" : "b";
+      var arrow = p.from_a ? "&rarr;" : "&larr;";
+      return '<div class="turn ' + side + '">' +
+        '<div class="meta" data-n="' + p.n + '">#' + p.n + " " + arrow + " " +
+        esc(p.summary) + "</div>" +
+        (p.text ? "<pre>" + esc(p.text.slice(0, 1200)) + "</pre>" : "") +
+        "</div>";
+    }).join("");
+    var tail = res.total > res.shown
+      ? '<div class="empty">Showing the first ' + res.shown + " of " + res.total + " packets.</div>"
+      : "";
+    $("sheetBody").innerHTML = head + body + tail;
+    Array.prototype.forEach.call($("sheetBody").querySelectorAll(".meta"), function(el){
+      el.addEventListener("click", function(){
+        closeSheet();
+        select(parseInt(this.getAttribute("data-n"), 10));
+      });
+    });
+    $("veil").classList.add("on");
+    $("sheet").classList.add("on");
+  });
+}
+
+function closeSheet(){
+  $("veil").classList.remove("on");
+  $("sheet").classList.remove("on");
+}
+$("veil").addEventListener("click", closeSheet);
+$("closeSheet").addEventListener("click", closeSheet);
+
+// ---- wiring --------------------------------------------------------------
+$("apply").addEventListener("click", function(){ state.offset = 0; load(); });
+$("clear").addEventListener("click", function(){
+  $("filter").value = ""; state.offset = 0; load();
+});
+$("filter").addEventListener("keydown", function(e){
+  if (e.key === "Enter"){ state.offset = 0; load(); }
+});
+document.addEventListener("keydown", function(e){
+  if (e.key === "Escape") closeSheet();
+});
+
+fetch("/api/packets?limit=1").then(function(r){ return r.json(); }).then(function(res){
+  if (res.path){
+    $("where").innerHTML = "reading <b>" + esc(res.path) + "</b>, " +
+      (res.total || 0).toLocaleString() + " packets";
+  }
+});
+
+drawChips();
+load();
+</script>
+</body>
+</html>

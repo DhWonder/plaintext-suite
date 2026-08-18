@@ -69,13 +69,20 @@ OPTIONS FOR packets AND browse
   --follow N       show the whole conversation packet N belongs to
   --limit N        how many packets to print (default 40)
   --keep N         how many bytes of each packet to hold on to (default 2048)
-  --vt-key KEY     a VirusTotal key. With it, the flagged sources (and only those)
-                   are looked up against VirusTotal to see if they are already
-                   known attackers. Only the address is sent, never any traffic.
-                   Answers are cached so a re-run costs nothing, and it pauses to
-                   stay inside the free key's four-a-minute limit. The key can also
-                   come from the VT_API_KEY environment variable, to keep it out of
-                   your shell history.
+  --reputation     ask the reputation databases about the flagged sources, and
+                   cross what they say. GreyNoise and the Spamhaus and DroneBL
+                   blocklists need no key at all, so this works on its own. Only
+                   the address is sent, never any traffic, and only for sources
+                   the analysis already flagged.
+  --vt-key KEY     a VirusTotal key, adding "how many of about seventy vendors
+                   call this address malicious" to the crossing
+  --abuseipdb-key KEY  an AbuseIPDB key, adding "how many people have reported it"
+  --greynoise-key KEY  a GreyNoise key, if you have one. It is asked either way.
+
+                   Keys can also come from VT_API_KEY, ABUSEIPDB_API_KEY and
+                   GREYNOISE_API_KEY, to keep them out of your shell history.
+                   Answers are cached so a re-run costs nothing, and the lookups
+                   pace themselves to stay inside the free limits.
   --notify         email you when a live capture finds a hostile source, or a
                    site check finds one down or with a dying certificate. Off
                    unless you pass it, and it needs ~/.plaintext/notify.conf,
@@ -134,7 +141,7 @@ def parse_options(args):
     takes_value = {"--html", "--json", "--db", "--seconds", "--log", "--port",
                    "--host", "--ui", "--top", "--note", "--live", "--history",
                    "--notify-config", "--vt-key", "--filter", "--show", "--follow",
-                   "--limit", "--keep"}
+                   "--limit", "--keep", "--abuseipdb-key", "--greynoise-key"}
     options = {}
     positional = []
     index = 0
@@ -491,13 +498,28 @@ def enrich_reputation(summary, options):
     VT_API_KEY or VIRUSTOTAL_API_KEY environment variable. Without one, nothing
     here runs and the report is exactly as it was.
     """
-    key = options.get("vt-key")
-    if key is True or not key:
-        key = os.environ.get("VT_API_KEY") or os.environ.get("VIRUSTOTAL_API_KEY") or ""
-    if not key:
-        return
-
     from trafficanalyzer import analyse, reputation
+
+    def pick(option, *names):
+        value = options.get(option)
+        if value is True or not value:
+            for name in names:
+                if os.environ.get(name):
+                    return os.environ[name]
+            return ""
+        return value
+
+    keys = {
+        "vt": pick("vt-key", "VT_API_KEY", "VIRUSTOTAL_API_KEY"),
+        "abuseipdb": pick("abuseipdb-key", "ABUSEIPDB_API_KEY"),
+        "greynoise": pick("greynoise-key", "GREYNOISE_API_KEY"),
+    }
+    # GreyNoise and the blocklists need no key at all, so the lookups are worth
+    # doing whenever they are asked for, even with nothing configured. `--reputation`
+    # is how you say "ask the free ones".
+    wanted = bool(options.get("reputation")) or any(keys.values())
+    if not wanted:
+        return
 
     local = set(summary.get("local_ips") or ())
 
@@ -509,15 +531,15 @@ def enrich_reputation(summary, options):
     flagged = [r for r in sources
                if r.get("level") in ("critical", "high") and is_public(r["ip"])]
     if not flagged:
-        print("  VirusTotal: no flagged public addresses to look up.")
+        print("  Reputation: no flagged public addresses to look up.")
         print()
         return
 
-    # On the free key each live lookup waits its turn, so checking a hundred
-    # flagged sources would sit there for half an hour. In a flood the flagged
-    # sources are usually the same botnet anyway, so the first handful already
-    # tell the story. Check the busiest ones (they are sorted worst first) and
-    # say plainly when more were flagged than were looked up.
+    # Each live lookup waits its turn, so checking a hundred flagged sources
+    # would sit there for half an hour. In a flood the flagged sources are
+    # usually the same botnet anyway, so the first handful already tell the
+    # story. Check the busiest ones (sorted worst first) and say plainly when
+    # more were flagged than were looked up.
     LOOKUP_CAP = 10
     extra = 0
     if len(flagged) > LOOKUP_CAP:
@@ -525,22 +547,23 @@ def enrich_reputation(summary, options):
         flagged = flagged[:LOOKUP_CAP]
 
     db = database(options)
-    checker = reputation.Checker(key=key, store=db, is_public=is_public)
+    checker = reputation.Checker(keys=keys, store=db, is_public=is_public)
 
     total = len(flagged)
 
     def progress(ip, n):
-        # Only worth saying while it actually has to wait on the network.
-        sys.stdout.write("\r  VirusTotal: looking up %s (%d of %d)      " % (ip, n, total))
+        sys.stdout.write("\r  Reputation: looking up %s (%d of %d)      " % (ip, n, total))
         sys.stdout.flush()
 
-    print("  VirusTotal: checking %d flagged address%s. Only the flagged ones are"
+    print("  Reputation: crossing %d flagged address%s against several databases."
           % (total, "" if total == 1 else "es"))
-    print("              sent, and only the address, never any traffic.")
+    for name, note in checker.sources_asked():
+        print("              %-14s %s" % (name, note))
+    print("              Only the address is sent, never any traffic.")
     if extra:
-        print("              (%d more were flagged; not looked up, to stay within the"
+        print("              %d more were flagged but not looked up, to stay inside the"
               % extra)
-        print("              free key's limit.)")
+        print("              free limits.")
     results = checker.enrich([r["ip"] for r in flagged], progress=progress)
     sys.stdout.write("\r" + " " * 72 + "\r")
 

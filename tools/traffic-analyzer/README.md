@@ -189,36 +189,58 @@ Two honest limits:
 
 ---
 
-## Asking VirusTotal about the flagged sources
+## Crossing the reputation databases
 
 The scoring above needs no internet: it decides who is a problem from the traffic
-alone. If you pass a VirusTotal key, it will add one thing on top of that, and only
-for the sources it already flagged: has anybody else reported this address before.
+alone. This adds one more thing on top, and only for the sources it already
+flagged: what does anybody else already know about this address.
 
 ```
-python3 traffic_analyzer.py attack.pcap --vt-key YOUR_KEY
+python3 traffic_analyzer.py attack.pcap --reputation
+python3 traffic_analyzer.py attack.pcap --reputation --vt-key KEY --abuseipdb-key KEY
 ```
 
-An address that is hammering you AND is flagged by forty vendors as a known attacker
-is a different conversation from one that merely looks busy. So the report gains a
-short section that leads with the known-bad ones, naming how many vendors call each
-address malicious and what country and network it sits in.
+**Why more than one database.** Because one is a rumour and three that agree are a
+finding. But the real reason is the disagreements, which is usually where the
+useful answer hides:
 
-The rules it follows are the same ones the rest of the suite follows:
+| What comes back | What it means |
+|---|---|
+| Several databases agree it is bad | Not just busy traffic. Somebody has already reported this address for attacks. |
+| One says bad, the rest do not | Weaker than agreement. Weigh it with the traffic rather than on its own. |
+| Bad **and** a known scanner | The useful case. It is an internet wide scanner knocking on every door including yours: noise, not an attack aimed at you. |
+| A known scanner, nobody against it | Block it if it is loud. It is not an attack. |
+| Nobody has heard of it | Unknown is not safe. A fresh botnet machine is unknown to every database on its first day. |
+
+That third row is the one that stops wrong conclusions. An address that VirusTotal
+calls malicious and GreyNoise names as Shodan is both of those things at once, and
+a tool that only asked VirusTotal would have told you that you were under attack.
+
+**Who gets asked**
+
+| Source | Key | What it adds |
+|---|---|---|
+| GreyNoise (community) | none | whether it is a known internet wide scanner, and its name. This is the one that prevents the false alarms. |
+| Spamhaus, DroneBL | none | blocklist hits, asked over DNS the way a mail server asks |
+| VirusTotal | free key | how many of about seventy vendors call it malicious |
+| AbuseIPDB | free key | how many people have reported it, and how confident they are |
+
+So `--reputation` on its own already works, with no account anywhere. The keys add
+depth rather than being the price of entry. They can come from `VT_API_KEY`,
+`ABUSEIPDB_API_KEY` and `GREYNOISE_API_KEY` to keep them out of your shell history.
+
+The report names every source and what each one said, so the verdict is checkable
+rather than asserted. The rules are the same ones the rest of the suite follows:
 
 - **Only the flagged sources are looked up, never the whole capture,** and only the
-  address is ever sent. Sending an IP to VirusTotal tells VirusTotal you are looking
-  at it, which is a fair trade for an address already attacking you but is still a
-  thing that leaves, so it is off until you pass a key.
-- **The free key is small:** four lookups a minute, five hundred a day. The tool
-  paces itself to stay inside that, checks the busiest ten flagged sources and says
-  plainly when more were flagged than were looked up, and stops if the daily budget
-  runs out rather than failing halfway through in silence.
-- **Every answer is cached** in the same database, so running the same capture again,
-  or seeing the same address in a later one, costs no lookup.
-
-The key can also come from the `VT_API_KEY` environment variable, to keep it out of
-your shell history. A free key is enough; get one from virustotal.com.
+  address is ever sent. Sending an IP to a reputation service tells that service
+  you are looking at it. Fair for an address already attacking you, but still a
+  thing that leaves, so it is off until you ask.
+- **Free limits are respected.** It paces itself, checks the busiest ten flagged
+  sources, says plainly when more were flagged than looked up, and a database that
+  is down or rate limited never stops the others being asked.
+- **Every answer is cached** in the same database, so running the same capture
+  again, or seeing the same address later, costs no lookup.
 
 ---
 
@@ -291,9 +313,12 @@ accident. Binding it anywhere else takes an explicit `--host` and prints a warni
 - **It reads. It does not scan, block or change anything.** It contacts nobody
   about what it found unless you switch it on yourself, and there are only two
   ways to: `--notify` emails you, through your own mail server, at your own
-  address; and `--vt-key` sends the flagged addresses, and only those, to
-  VirusTotal to ask whether they are already known. Both are off by default.
-  Nothing is ever sent to me, and your traffic is never sent anywhere.
+  address; and `--reputation` sends the flagged addresses, and only those, to the
+  reputation databases to ask whether they are already known. Both are off by
+  default. Nothing is ever sent to me, and your traffic is never sent anywhere.
+- **The packet browser is not Wireshark.** It decodes Ethernet, IPv4, IPv6, TCP,
+  UDP and ICMP, and shows everything above that as bytes. Wireshark dissects two
+  thousand protocols; this does the ones the rest of the tool already understands.
 
 ---
 

@@ -79,12 +79,20 @@ def print_report(a, show=12):
         print()
 
 
-def print_reputation(a):
-    """What VirusTotal said about the flagged sources, if it was asked at all.
+# How loudly to print each crossed verdict, and in what order.
+REPUTATION_ORDER = {"known-bad": 0, "disputed": 1, "single-report": 2,
+                    "benign": 3, "clean": 4, "unknown": 5}
+REPUTATION_PAINT = {"known-bad": "critical", "disputed": "watch",
+                    "single-report": "high", "benign": "normal"}
 
-    Only runs when --vt-key put a `reputation` block on at least one source. It
-    leads with the known-bad ones, because "already reported as an attacker" is
-    the sentence that changes what somebody does next.
+
+def print_reputation(a):
+    """What the reputation databases said, and whether they agreed.
+
+    Only runs when the lookups were asked for. It leads with the addresses the
+    databases agree are bad, then the disputed ones, because a disagreement
+    between sources is usually where the useful answer is: an address that is
+    both "malicious" and "a known scanner" is internet noise, not an attack.
     """
     from . import reputation as rep_module
 
@@ -92,29 +100,33 @@ def print_reputation(a):
     if not rated:
         return
 
-    # Known bad first, then suspicious, then the rest, so the strongest
-    # corroboration is what the eye lands on.
-    def rank(row):
-        result = row["reputation"]
-        if result.get("known"):
-            return 0
-        if result.get("suspicious"):
-            return 1
-        return 2
-    rated.sort(key=rank)
+    rated.sort(key=lambda row: REPUTATION_ORDER.get(
+        row["reputation"].get("level", "unknown"), 9))
 
-    print("  What VirusTotal knows about the flagged sources")
+    print("  What the reputation databases know about the flagged sources")
     print("  " + "-" * 70)
     for row in rated:
         result = row["reputation"]
         headline, body = rep_module.verdict(result)
-        level = "critical" if result.get("known") else row.get("level", "normal")
+        level = REPUTATION_PAINT.get(result.get("level"), row.get("level", "normal"))
         print("  %s  %s" % (paint(row["ip"], level), headline))
         for line in wrap(body, 66):
             print("      " + line)
+
+        # Who said what. This is the part that makes the verdict checkable
+        # rather than something the tool just asserts.
+        for source in result.get("sources", []):
+            if source.get("skipped"):
+                continue
+            mark = "bad " if source.get("known") else \
+                   ("ok  " if source.get("benign") else
+                    ("    " if source.get("ok") else "?   "))
+            print("        %s%-12s %s" % (mark, source.get("source", ""),
+                                          source.get("why", "")))
+        print()
+
     coverage = a.get("reputation_coverage")
     if coverage:
-        print()
         for line in wrap("Coverage: " + coverage + ".", 68):
             print("  " + line)
     print()

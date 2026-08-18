@@ -105,15 +105,19 @@ CREATE TABLE IF NOT EXISTS service_check (
 CREATE TABLE IF NOT EXISTS ip_reputation (
     ip          TEXT PRIMARY KEY,       -- the address asked about
     checked_at  REAL NOT NULL,          -- when the answer was fetched
-    known_bad   INTEGER DEFAULT 0,      -- 1 if any vendor calls it malicious
-    malicious   INTEGER DEFAULT 0,      -- how many vendors do
+    known_bad   INTEGER DEFAULT 0,      -- 1 if the crossed verdict says bad
+    malicious   INTEGER DEFAULT 0,      -- VirusTotal: vendors calling it malicious
     suspicious  INTEGER DEFAULT 0,
-    total       INTEGER DEFAULT 0,      -- how many vendors weighed in
-    reputation  INTEGER DEFAULT 0,      -- the community score, can be negative
+    total       INTEGER DEFAULT 0,      -- VirusTotal: vendors that weighed in
+    reputation  INTEGER DEFAULT 0,      -- AbuseIPDB confidence, 0 to 100
     country     TEXT DEFAULT '',
     asn         TEXT DEFAULT '',
     as_owner    TEXT DEFAULT '',
-    detail      TEXT DEFAULT ''         -- the whole answer, as JSON
+    level       TEXT DEFAULT '',        -- known-bad, disputed, benign, clean...
+    bad_count   INTEGER DEFAULT 0,      -- how many databases called it bad
+    benign_count INTEGER DEFAULT 0,     -- how many called it harmless
+    answered    INTEGER DEFAULT 0,      -- how many answered at all
+    detail      TEXT DEFAULT ''         -- every source and what it said, as JSON
 );
 
 CREATE INDEX IF NOT EXISTS service_by_host ON service_check (host, checked_at DESC);
@@ -446,22 +450,43 @@ class Store(object):
         return result
 
     def save_reputation(self, ip, result):
-        """Remember one answer. Only real answers are worth keeping."""
+        """Remember one crossed answer. Only real answers are worth keeping.
+
+        The whole answer, every source and what each said, goes in `detail`. The
+        columns beside it are the handful worth querying on directly.
+        """
         if not result or not result.get("ok"):
             return
+
+        # Pull the numbers out of whichever source knew them, so the columns stay
+        # useful now that more than one database is involved.
+        malicious = suspicious = total = score = 0
+        country = asn = owner = ""
+        for source in result.get("sources", []):
+            if source.get("source") == "VirusTotal" and source.get("ok"):
+                malicious = int(source.get("malicious", 0) or 0)
+                suspicious = int(source.get("suspicious", 0) or 0)
+                total = int(source.get("total", 0) or 0)
+            if source.get("source") == "AbuseIPDB" and source.get("ok"):
+                score = int(source.get("score", 0) or 0)
+            country = country or source.get("country", "")
+            asn = asn or source.get("asn", "")
+            owner = owner or source.get("as_owner", "") or source.get("isp", "")
+
         self.db.execute(
             """INSERT OR REPLACE INTO ip_reputation
                (ip, checked_at, known_bad, malicious, suspicious, total, reputation,
-                country, asn, as_owner, detail)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                country, asn, as_owner, level, bad_count, benign_count, answered, detail)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (ip, result.get("checked_at") or time.time(),
              1 if result.get("known") else 0,
-             int(result.get("malicious", 0) or 0),
-             int(result.get("suspicious", 0) or 0),
-             int(result.get("total", 0) or 0),
-             int(result.get("reputation", 0) or 0),
-             result.get("country", ""), result.get("asn", ""),
-             result.get("as_owner", ""), json.dumps(result)))
+             malicious, suspicious, total, score,
+             country, asn, owner,
+             result.get("level", ""),
+             int(result.get("bad_count", 0) or 0),
+             int(result.get("benign_count", 0) or 0),
+             int(result.get("answered", 0) or 0),
+             json.dumps(result)))
         self.db.commit()
 
     # ------------------------------------------------------------------

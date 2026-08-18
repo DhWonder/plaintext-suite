@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>email-checker</title>
+<link rel="icon" href="data:,">
+
+<!--
+  The browser face for email-checker.
+
+  This page does no judging of its own. It takes what you give it, hands it to
+  the Python running on this machine at 127.0.0.1, and shows what comes back. The
+  reason it works this way and not all in JavaScript is written up in server.py:
+  the real reading of an email is Python, and a second copy of that judgement in
+  the browser would drift and eventually give a client a different answer.
+
+  So: nothing here is uploaded to anyone. The only thing listening is the tool on
+  your own machine. Everything is one file, no libraries, no storage.
+-->
+<style>
+ :root{--bg:#0B1220;--bg2:#0F1829;--surface:#121C2F;--line:rgba(255,255,255,.09);
+   --line2:rgba(255,255,255,.16);--text:#E8EEF7;--muted:#93A4BF;--cyan:#22D3EE;--violet:#A78BFA;
+   --mint:#34D399;--red:#FB7185;--amber:#FBBF24;}
+ *{margin:0;padding:0;box-sizing:border-box}
+ body{background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,'Segoe UI',sans-serif;
+   line-height:1.6;-webkit-text-size-adjust:100%}
+ .mono{font-family:'JetBrains Mono','SF Mono',Menlo,Consolas,monospace}
+ .wrap{max-width:920px;margin:0 auto;padding:20px}
+ a{color:var(--cyan)}
+
+ header{border-bottom:1px solid var(--line);padding:16px 0;margin-bottom:22px;
+   display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+ .logo{font-size:1.15rem;font-weight:700;font-family:'JetBrains Mono',monospace}
+ .logo b{background:linear-gradient(90deg,var(--cyan),var(--violet));-webkit-background-clip:text;
+   background-clip:text;color:transparent}
+ .state{font-size:.78rem;color:var(--muted);display:flex;align-items:center;gap:7px}
+ .state i{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+ .state.on i{background:var(--mint);box-shadow:0 0 0 0 rgba(52,211,153,.6);animation:pulse 2.4s infinite}
+ .state.off i{background:var(--amber)}
+ @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(52,211,153,.5)}
+   70%{box-shadow:0 0 0 7px rgba(52,211,153,0)}100%{box-shadow:0 0 0 0 rgba(52,211,153,0)}}
+
+ .tabs{display:flex;gap:6px;margin-bottom:20px;flex-wrap:wrap}
+ .tab{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:9px 16px;
+   font-size:.88rem;font-weight:600;color:var(--muted);cursor:pointer;transition:.14s}
+ .tab:hover{color:var(--text);border-color:var(--line2)}
+ .tab.sel{color:var(--text);border-color:var(--cyan);background:rgba(34,211,238,.08)}
+
+ .panel{display:none}
+ .panel.sel{display:block}
+
+ .card{background:var(--surface);border:1px solid var(--line);border-radius:13px;padding:18px 20px;
+   margin-bottom:16px}
+ h2{font-size:1.05rem;font-weight:700;margin-bottom:4px}
+ .sub{color:var(--muted);font-size:.85rem;margin-bottom:15px}
+
+ .drop{border:1.5px dashed var(--line2);border-radius:12px;padding:34px 20px;text-align:center;
+   cursor:pointer;transition:.15s;background:rgba(255,255,255,.015)}
+ .drop:hover,.drop.over{border-color:var(--cyan);background:rgba(34,211,238,.05)}
+ .drop .big{font-size:.98rem;font-weight:600;margin-bottom:5px}
+ .drop .small{font-size:.8rem;color:var(--muted)}
+ .drop .formats{font-size:.72rem;color:var(--muted);margin-top:10px;font-family:'JetBrains Mono',monospace}
+
+ .or{text-align:center;color:var(--muted);font-size:.78rem;margin:14px 0;
+   text-transform:uppercase;letter-spacing:.08em}
+
+ textarea,input[type=text],input[type=password]{width:100%;background:var(--bg2);
+   border:1px solid var(--line);border-radius:10px;color:var(--text);padding:12px 14px;
+   font-size:.9rem;font-family:inherit;resize:vertical}
+ textarea{min-height:120px;font-family:'JetBrains Mono',monospace;font-size:.82rem}
+ textarea:focus,input:focus{outline:none;border-color:var(--cyan)}
+ label.fld{display:block;font-size:.78rem;color:var(--muted);margin:0 0 6px;
+   text-transform:uppercase;letter-spacing:.05em}
+
+ .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px}
+ .btn{background:linear-gradient(135deg,var(--cyan),var(--violet));color:#06121C;border:none;
+   border-radius:10px;padding:11px 22px;font-weight:700;font-size:.9rem;cursor:pointer;transition:.14s}
+ .btn:hover{filter:brightness(1.08)}
+ .btn:disabled{opacity:.5;cursor:default;filter:none}
+ .btn.sec{background:none;border:1px solid var(--line2);color:var(--text)}
+
+ .check{display:flex;align-items:center;gap:8px;font-size:.83rem;color:var(--muted);cursor:pointer;
+   user-select:none}
+ .check input{width:16px;height:16px;accent-color:var(--cyan);cursor:pointer}
+
+ .msg{font-size:.85rem;padding:11px 15px;border-radius:10px;margin-top:14px;display:none}
+ .msg.show{display:block}
+ .msg.err{background:rgba(251,113,133,.09);border:1px solid rgba(251,113,133,.3);color:#FDA4AF}
+ .msg.info{background:rgba(34,211,238,.06);border:1px solid rgba(34,211,238,.2);color:#A5F3FC}
+
+ .working{display:none;align-items:center;gap:10px;color:var(--muted);font-size:.85rem;margin-top:14px}
+ .working.show{display:flex}
+ .spin{width:15px;height:15px;border:2px solid var(--line2);border-top-color:var(--cyan);
+   border-radius:50%;animation:spin .7s linear infinite}
+ @keyframes spin{to{transform:rotate(360deg)}}
+
+ /* verdict banner */
+ .verdict{border-radius:12px;padding:16px 18px;margin-bottom:16px;border:1px solid}
+ .verdict h3{font-size:1.02rem;font-weight:700;margin-bottom:5px;display:flex;align-items:center;gap:9px}
+ .verdict p{font-size:.87rem;color:var(--text);opacity:.92}
+ .verdict .dot{width:11px;height:11px;border-radius:50%;flex-shrink:0}
+ .lvl-normal{background:rgba(52,211,153,.07);border-color:rgba(52,211,153,.3)}
+ .lvl-normal .dot{background:var(--mint)}
+ .lvl-watch{background:rgba(251,191,36,.07);border-color:rgba(251,191,36,.32)}
+ .lvl-watch .dot{background:var(--amber)}
+ .lvl-high,.lvl-critical{background:rgba(251,113,133,.08);border-color:rgba(251,113,133,.35)}
+ .lvl-high .dot,.lvl-critical .dot{background:var(--red)}
+
+ .meta{display:grid;grid-template-columns:auto 1fr;gap:3px 14px;font-size:.83rem;margin-bottom:15px}
+ .meta .k{color:var(--muted)}
+ .meta .v{font-family:'JetBrains Mono',monospace;word-break:break-all}
+
+ .sec{margin-top:16px}
+ .sec>.t{font-size:.74rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);
+   border-bottom:1px solid var(--line2);padding-bottom:6px;margin-bottom:11px;font-weight:700}
+
+ .find{border-left:3px solid var(--line2);padding:4px 0 4px 12px;margin-bottom:11px}
+ .find .tag{font-size:.66rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;
+   display:inline-block;margin-bottom:3px}
+ .find.w3{border-left-color:var(--red)} .find.w3 .tag{color:var(--red)}
+ .find.w2{border-left-color:var(--amber)} .find.w2 .tag{color:var(--amber)}
+ .find.w1{border-left-color:var(--cyan)} .find.w1 .tag{color:var(--cyan)}
+ .find p{font-size:.85rem}
+ .clean{font-size:.85rem;color:var(--mint)}
+
+ .att{background:var(--bg2);border:1px solid var(--line);border-radius:11px;padding:14px 16px;
+   margin-bottom:12px}
+ .att .nm{font-weight:700;font-size:.9rem;font-family:'JetBrains Mono',monospace;word-break:break-all}
+ .att .facts{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:.78rem;color:var(--muted);
+   margin:8px 0 12px}
+ .att .facts .v{font-family:'JetBrains Mono',monospace;color:var(--text);word-break:break-all}
+ .inside{font-size:.78rem;color:var(--muted);margin-top:8px}
+ .inside code{font-family:'JetBrains Mono',monospace;color:var(--text);display:block;
+   padding:1px 0}
+
+ .dstat{display:grid;grid-template-columns:60px 90px 1fr;gap:6px 10px;font-size:.82rem;
+   align-items:center;margin-bottom:10px}
+ .dstat .lab{font-weight:700;font-family:'JetBrains Mono',monospace}
+ .badge{display:inline-block;padding:2px 9px;border-radius:99px;font-size:.68rem;font-weight:700;
+   text-align:center}
+ .b-pass{background:rgba(52,211,153,.15);color:var(--mint)}
+ .b-warn{background:rgba(251,191,36,.15);color:var(--amber)}
+ .b-fail{background:rgba(251,113,133,.15);color:var(--red)}
+ .b-none{background:rgba(255,255,255,.07);color:var(--muted)}
+ .dm{color:var(--muted);font-size:.8rem}
+
+ .src{display:flex;justify-content:space-between;font-size:.8rem;padding:5px 0;
+   border-bottom:1px solid var(--line);gap:12px}
+ .src .n{font-family:'JetBrains Mono',monospace}
+ .src .r{color:var(--muted);text-align:right}
+ .src .r.bad{color:var(--red)} .src .r.ok{color:var(--mint)}
+
+ .gtime{font-family:'JetBrains Mono',monospace;font-size:1.5rem;font-weight:700;color:var(--cyan);
+   margin:2px 0 4px}
+ ul.pts{list-style:none;margin:8px 0}
+ ul.pts li{font-size:.85rem;padding:3px 0 3px 18px;position:relative}
+ ul.pts li::before{content:"";position:absolute;left:2px;top:11px;width:6px;height:6px;border-radius:50%}
+ ul.pts.good li::before{background:var(--mint)}
+ ul.pts.bad li::before{background:var(--amber)}
+
+ .foot{color:var(--muted);font-size:.76rem;text-align:center;padding:24px 0 8px;line-height:1.7}
+ .more{font-size:.78rem;color:var(--muted);margin-top:12px}
+ details{margin-top:10px}
+ summary{cursor:pointer;font-size:.8rem;color:var(--cyan)}
+ .keys{margin-top:12px;display:grid;gap:8px}
+ .paging{display:flex;justify-content:space-between;align-items:center;margin:14px 0;font-size:.83rem;
+   color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo">email<b>-</b>checker</div>
+    <div class="state" id="state"><i></i><span id="stateText">checking the tool...</span></div>
+  </header>
+
+  <div class="tabs">
+    <div class="tab sel" data-tab="email">Check an email</div>
+    <div class="tab" data-tab="password">Check a password</div>
+    <div class="tab" data-tab="breach">Check an address</div>
+  </div>
+
+  <!-- ============ EMAIL ============ -->
+  <div class="panel sel" id="p-email">
+    <div class="card">
+      <h2>Is this email safe?</h2>
+      <p class="sub">Save the message from your mail program and drop it here. It is read on this
+        machine and never uploaded. It reads .eml, .emlx, .mbox and Outlook .msg, or paste the raw
+        text below.</p>
+
+      <div class="drop" id="drop">
+        <div class="big">Drop an email here, or click to choose one</div>
+        <div class="small">nothing is uploaded &mdash; it is read by the tool on this machine</div>
+        <div class="formats">.eml  .emlx  .mbox  .msg  .eml.gz</div>
+      </div>
+      <input type="file" id="file" style="display:none">
+
+      <div class="or">or paste the message</div>
+      <textarea id="text" placeholder="Paste the full email, headers and all, then press Check."></textarea>
+
+      <div class="row">
+        <button class="btn" id="goEmail">Check it</button>
+        <label class="check"><input type="checkbox" id="emailDomain" checked> also check if the sender's domain can be forged</label>
+      </div>
+      <div class="working" id="emailWork"><span class="spin"></span> reading it here, on this machine...</div>
+      <div class="msg" id="emailMsg"></div>
+    </div>
+    <div id="emailOut"></div>
+  </div>
+
+  <!-- ============ PASSWORD ============ -->
+  <div class="panel" id="p-password">
+    <div class="card">
+      <h2>How strong is this password?</h2>
+      <p class="sub">The password stays on this machine. If you allow the breach check, only a short
+        piece of its fingerprint is sent, never the password, so the lookup can happen without anyone
+        learning it.</p>
+      <label class="fld" for="pw">password</label>
+      <input type="password" id="pw" placeholder="type or paste it" autocomplete="off">
+      <div class="row">
+        <button class="btn" id="goPw">Check it</button>
+        <label class="check"><input type="checkbox" id="pwShow"> show it</label>
+        <label class="check"><input type="checkbox" id="pwBreach" checked> also check if it is in the leaked sets</label>
+      </div>
+      <div class="working" id="pwWork"><span class="spin"></span> working...</div>
+      <div class="msg" id="pwMsg"></div>
+    </div>
+    <div id="pwOut"></div>
+  </div>
+
+  <!-- ============ BREACH ============ -->
+  <div class="panel" id="p-breach">
+    <div class="card">
+      <h2>Has this address been in a breach?</h2>
+      <p class="sub">This one genuinely sends the address to a breach database, so it does not happen
+        until you tick the box. That is the honest part: the address leaves this machine.</p>
+      <label class="fld" for="addr">email address</label>
+      <input type="text" id="addr" placeholder="someone@example.com" autocomplete="off">
+      <label class="check" style="margin-top:14px"><input type="checkbox" id="consent"> I understand the address will be sent to the breach databases below</label>
+      <div class="more" id="breachSources"></div>
+      <div class="row">
+        <button class="btn" id="goBreach">Look it up</button>
+      </div>
+      <div class="working" id="breachWork"><span class="spin"></span> asking the databases...</div>
+      <div class="msg" id="breachMsg"></div>
+    </div>
+    <div id="breachOut"></div>
+  </div>
+
+  <div class="foot">
+    email-checker, part of Plaintext IT. Everything you check is read by the tool on this machine.
+    Nothing is uploaded except, and only if you allow it, an attachment fingerprint, the sender's
+    domain name, or an address you asked to look up.<br>
+    <a href="https://github.com/DhWonder/plaintext-suite/tree/main/tools/email-checker">the code, in plain English</a>
+  </div>
+
+</div>
+
+<script>
+"use strict";
+
+// The tool answers on the same origin this page was served from. If the page is
+// opened straight off disk that will be empty, and every call will say so.
+var API = "";
+var online = true;
+
+function $(id){ return document.getElementById(id); }
+function esc(s){ return String(s == null ? "" : s)
+  .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+// ---- tabs ----------------------------------------------------------------
+var tabs = document.querySelectorAll(".tab");
+for (var i = 0; i < tabs.length; i++){
+  tabs[i].addEventListener("click", function(){
+    var name = this.getAttribute("data-tab");
+    document.querySelectorAll(".tab").forEach(function(t){ t.classList.remove("sel"); });
+    document.querySelectorAll(".panel").forEach(function(p){ p.classList.remove("sel"); });
+    this.classList.add("sel");
+    $("p-" + name).classList.add("sel");
+  });
+}
+
+// ---- talking to the tool -------------------------------------------------
+function post(path, body){
+  return fetch(API + path, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body)
+  }).then(function(r){ return r.json(); });
+}
+
+function showMsg(el, kind, text){
+  el.className = "msg show " + kind;
+  el.textContent = text;
+}
+function hideMsg(el){ el.className = "msg"; }
+function noReach(el){
+  showMsg(el, "err", "Could not reach the tool. Start it with:  python3 email_checker.py serve");
+}
+
+// ---- health, on load -----------------------------------------------------
+fetch(API + "/api/health").then(function(r){ return r.json(); }).then(function(h){
+  online = !!h.online;
+  var s = $("state");
+  s.className = "state " + (online ? "on" : "off");
+  $("stateText").textContent = online
+    ? "tool running, lookups allowed"
+    : "tool running, offline (no lookups)";
+  var src = (h.sources && h.sources.breach) || [];
+  if (src.length){
+    var html = "The address would be sent to: ";
+    html += src.map(function(pair){ return "<b>" + esc(pair[0]) + "</b>"; }).join(", ");
+    $("breachSources").innerHTML = html + ".";
+  }
+}).catch(function(){
+  var s = $("state");
+  s.className = "state off";
+  $("stateText").textContent = "tool not reachable";
+});
+
+// ================= EMAIL =================
+var chosen = null;   // {name, dataB64}
+
+function readFile(file){
+  var reader = new FileReader();
+  reader.onload = function(){
+    var bytes = new Uint8Array(reader.result);
+    var bin = "";
+    for (var i = 0; i < bytes.length; i++){ bin += String.fromCharCode(bytes[i]); }
+    chosen = {name: file.name, data: btoa(bin)};
+    $("drop").querySelector(".big").textContent = "Chosen: " + file.name;
+    $("text").value = "";
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+$("drop").addEventListener("click", function(){ $("file").click(); });
+$("file").addEventListener("change", function(){ if (this.files[0]) readFile(this.files[0]); });
+["dragover","dragenter"].forEach(function(ev){
+  $("drop").addEventListener(ev, function(e){ e.preventDefault(); this.classList.add("over"); });
+});
+["dragleave","drop"].forEach(function(ev){
+  $("drop").addEventListener(ev, function(e){ e.preventDefault(); this.classList.remove("over"); });
+});
+$("drop").addEventListener("drop", function(e){
+  if (e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0]);
+});
+$("text").addEventListener("input", function(){
+  if (this.value.trim()){
+    chosen = null;
+    $("drop").querySelector(".big").textContent = "Drop an email here, or click to choose one";
+  }
+});
+
+$("goEmail").addEventListener("click", function(){
+  var msg = $("emailMsg");
+  hideMsg(msg);
+  var body = {domain: $("emailDomain").checked, offline: !online, limit: 25, offset: 0};
+  if (chosen){
+    body.name = chosen.name;
+    body.data = chosen.data;
+  } else if ($("text").value.trim()){
+    body.text = $("text").value;
+  } else {
+    showMsg(msg, "info", "Drop an email or paste one first.");
+    return;
+  }
+  $("emailWork").classList.add("show");
+  $("goEmail").disabled = true;
+  $("emailOut").innerHTML = "";
+  post("/api/check", body).then(function(res){
+    $("emailWork").classList.remove("show");
+    $("goEmail").disabled = false;
+    if (res.error){ showMsg(msg, "err", res.error); return; }
+    renderEmails(res);
+  }).catch(function(){
+    $("emailWork").classList.remove("show");
+    $("goEmail").disabled = false;
+    noReach(msg);
+  });
+});
+
+function renderEmails(res){
+  var out = $("emailOut");
+  var html = "";
+  if (res.total > res.reports.length){
+    html += '<div class="paging"><span>Showing ' + res.reports.length +
+            ' of ' + res.total + ' messages in this mailbox. The rest are on the command line.</span></div>';
+  }
+  res.reports.forEach(function(rep){ html += emailCard(rep); });
+  out.innerHTML = html;
+}
+
+function verdictBanner(level, headline, body){
+  return '<div class="verdict lvl-' + esc(level) + '">' +
+         '<h3><span class="dot"></span>' + esc(headline) + '</h3>' +
+         '<p>' + esc(body) + '</p></div>';
+}
+
+function findingsHtml(findings){
+  if (!findings || !findings.length){
+    return '<p class="clean">Nothing here matches the patterns scams and malware normally leave behind.</p>';
+  }
+  var tag = {3: "serious", 2: "bad sign", 1: "worth noting"};
+  return findings.map(function(f){
+    var w = f[0], sentence = f[1];
+    return '<div class="find w' + w + '"><span class="tag">' + (tag[w] || "sign") +
+           '</span><p>' + esc(sentence) + '</p></div>';
+  }).join("");
+}
+
+function emailCard(rep){
+  var v = rep.verdict || ["", ""];
+  var html = '<div class="card">';
+  html += verdictBanner(rep.level, v[0], v[1]);
+
+  // headers
+  html += '<div class="meta">';
+  function line(k, val){ if (val) html += '<div class="k">' + k + '</div><div class="v">' + esc(val) + '</div>'; }
+  line("From", rep.from);
+  if (rep.reply_to && rep.reply_to !== rep.from) line("Reply to", rep.reply_to);
+  line("Subject", rep.subject);
+  line("Date", rep.date);
+  line("Read as", rep.format);
+  html += '</div>';
+
+  // the message itself
+  var m = rep.message || {};
+  html += '<div class="sec"><div class="t">The message itself</div>';
+  html += findingsHtml(m.findings);
+  if (m.verdict){ html += '<p class="dm" style="margin-top:8px">' + esc(m.verdict[1]) + '</p>'; }
+  html += '</div>';
+
+  // attachments
+  html += '<div class="sec"><div class="t">Attachments</div>';
+  var atts = rep.attachments || [];
+  if (!atts.length){
+    html += '<p class="dm">None. There is nothing attached to open.</p>';
+  } else {
+    atts.forEach(function(a){ html += attachmentHtml(a); });
+  }
+  html += '</div>';
+
+  // domain
+  html += '<div class="sec"><div class="t">Can the sender\'s domain be forged?</div>';
+  html += domainHtml(rep.domain);
+  html += '</div>';
+
+  html += '</div>';
+  return html;
+}
+
+function attachmentHtml(a){
+  var html = '<div class="att"><div class="nm">' + esc(a.name) + '</div>';
+  html += '<div class="facts">';
+  html += '<div>what it is</div><div class="v">' + esc(a.real_type) + '</div>';
+  html += '<div>size</div><div class="v">' + Number(a.bytes).toLocaleString() + ' bytes</div>';
+  html += '<div>fingerprint</div><div class="v">' + esc(a.sha256) + '</div>';
+  html += '</div>';
+  html += findingsHtml(a.findings);
+  var contents = a.contents || [];
+  if (contents.length){
+    html += '<div class="inside">inside it:';
+    contents.slice(0, 8).forEach(function(c){ html += '<code>' + esc(c) + '</code>'; });
+    if (contents.length > 8){ html += '<code>... and ' + (contents.length - 8) + ' more</code>'; }
+    html += '</div>';
+  }
+  var rep = a.reputation;
+  if (rep && rep.verdict){
+    html += '<div class="inside" style="margin-top:10px"><b>' + esc(rep.verdict[0]) + '</b><br>' +
+            esc(rep.verdict[1]) + '</div>';
+    (rep.sources || []).forEach(function(s){
+      var right, cls = "";
+      if (!s.ok){ right = s.error || "no answer"; }
+      else if (s.known){ right = s.family || "knows this file"; cls = "bad"; }
+      else { right = "does not know it"; cls = "ok"; }
+      html += '<div class="src"><span class="n">' + esc(s.source) + '</span>' +
+              '<span class="r ' + cls + '">' + esc(right) + '</span></div>';
+    });
+  }
+  html += '</div>';
+  return html;
+}
+
+function domainHtml(d){
+  if (!d){
+    return '<p class="dm">Not checked. This needs a DNS lookup, so it is skipped when the tool is ' +
+           'offline or when there was no sender domain to check.</p>';
+  }
+  var badgeFor = function(status){
+    var s = String(status || "").toLowerCase();
+    if (s === "pass" || s === "ok" || s === "good") return "b-pass";
+    if (s === "fail" || s === "missing" || s === "none") return "b-fail";
+    if (s === "weak" || s === "warn" || s === "partial") return "b-warn";
+    return "b-none";
+  };
+  var html = "";
+  [["spf","SPF"],["dkim","DKIM"],["dmarc","DMARC"]].forEach(function(pair){
+    var e = d[pair[0]] || {};
+    html += '<div class="dstat"><span class="lab">' + pair[1] + '</span>' +
+            '<span class="badge ' + badgeFor(e.status) + '">' + esc(e.status || "?") + '</span>' +
+            '<span class="dm">' + esc(e.message || "") + '</span></div>';
+  });
+  if (d.verdict){
+    html += '<p class="dm" style="margin-top:10px"><b style="color:var(--text)">' +
+            esc(d.verdict[0]) + '</b><br>' + esc(d.verdict[1]) + '</p>';
+  }
+  return html;
+}
+
+// ================= PASSWORD =================
+$("pwShow").addEventListener("change", function(){
+  $("pw").type = this.checked ? "text" : "password";
+});
+$("pw").addEventListener("keydown", function(e){ if (e.key === "Enter") $("goPw").click(); });
+
+$("goPw").addEventListener("click", function(){
+  var msg = $("pwMsg");
+  hideMsg(msg);
+  var secret = $("pw").value;
+  if (!secret){ showMsg(msg, "info", "Type a password first."); return; }
+  var offline = !online || !$("pwBreach").checked;
+  $("pwWork").classList.add("show");
+  $("goPw").disabled = true;
+  $("pwOut").innerHTML = "";
+  post("/api/password", {password: secret, offline: offline}).then(function(res){
+    $("pwWork").classList.remove("show");
+    $("goPw").disabled = false;
+    if (res.error){ showMsg(msg, "err", res.error); return; }
+    renderPassword(res);
+  }).catch(function(){
+    $("pwWork").classList.remove("show");
+    $("goPw").disabled = false;
+    noReach(msg);
+  });
+});
+
+function renderPassword(r){
+  var level = r.count ? "high" : (r.penalty >= 3 ? "watch" : "normal");
+  var head = r.count ? "This password has been leaked" :
+             (r.penalty >= 3 ? "This password is weak" : "This password holds up");
+  var html = '<div class="card">';
+  html += verdictBanner(level, head,
+    "A determined attacker with ordinary equipment would need " + r.guess_time + " to guess it.");
+  html += '<div class="sec"><div class="t">Time to guess</div><div class="gtime">' +
+          esc(r.guess_time) + '</div></div>';
+  if (r.good && r.good.length){
+    html += '<div class="sec"><div class="t">What is right about it</div><ul class="pts good">';
+    r.good.forEach(function(g){ html += '<li>' + esc(g) + '</li>'; });
+    html += '</ul></div>';
+  }
+  if (r.notes && r.notes.length){
+    html += '<div class="sec"><div class="t">What weakens it</div><ul class="pts bad">';
+    r.notes.forEach(function(n){ html += '<li>' + esc(n) + '</li>'; });
+    html += '</ul></div>';
+  }
+  if (r.offline){
+    html += '<p class="dm" style="margin-top:14px">Breach check was not run.</p>';
+  } else {
+    html += '<div class="sec"><div class="t">Has it already been stolen?</div>';
+    var cls = r.count ? "find w3" : "clean";
+    if (r.count){
+      html += '<div class="find w3"><span class="tag">serious</span><p>' + esc(r.note) + '</p></div>';
+      html += '<p class="dm" style="margin-top:10px">Change it anywhere it is used, starting with ' +
+              'email, then banking, then anything that can spend money.</p>';
+    } else {
+      html += '<p class="clean">' + esc(r.note) + '</p>';
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+  $("pwOut").innerHTML = html;
+}
+
+// ================= BREACH =================
+$("addr").addEventListener("keydown", function(e){ if (e.key === "Enter") $("goBreach").click(); });
+
+$("goBreach").addEventListener("click", function(){
+  var msg = $("breachMsg");
+  hideMsg(msg);
+  var address = $("addr").value.trim();
+  if (!address){ showMsg(msg, "info", "Type an address first."); return; }
+  if (!$("consent").checked){
+    showMsg(msg, "info", "Tick the box first. The address is not sent until you do.");
+    return;
+  }
+  if (!online){
+    showMsg(msg, "err", "The tool was started offline, so it will not send anything anywhere.");
+    return;
+  }
+  $("breachWork").classList.add("show");
+  $("goBreach").disabled = true;
+  $("breachOut").innerHTML = "";
+  post("/api/breach", {email: address, consent: true}).then(function(res){
+    $("breachWork").classList.remove("show");
+    $("goBreach").disabled = false;
+    if (res.error){ showMsg(msg, "err", res.error); return; }
+    renderBreach(res);
+  }).catch(function(){
+    $("breachWork").classList.remove("show");
+    $("goBreach").disabled = false;
+    noReach(msg);
+  });
+});
+
+function renderBreach(r){
+  var v = r.verdict || ["", ""];
+  var found = (r.breaches || []).length;
+  var level = found ? "high" : "normal";
+  var html = '<div class="card">';
+  html += verdictBanner(level, v[0], v[1]);
+
+  html += '<div class="sec"><div class="t">Who was asked</div>';
+  (r.sources || []).forEach(function(s){
+    var right, cls = "";
+    if (s.skipped){ right = "skipped (" + (s.reason || "no key") + ")"; }
+    else if (!s.ok){ right = s.error || "no answer"; }
+    else {
+      var n = (s.breaches || []).length;
+      right = n ? (n + " found") : "nothing";
+      cls = n ? "bad" : "ok";
+    }
+    html += '<div class="src"><span class="n">' + esc(s.source) + '</span>' +
+            '<span class="r ' + cls + '">' + esc(right) + '</span></div>';
+  });
+  html += '</div>';
+
+  if (found){
+    html += '<div class="sec"><div class="t">Where it turned up</div><ul class="pts bad">';
+    (r.breaches || []).slice(0, 20).forEach(function(b){ html += '<li>' + esc(b) + '</li>'; });
+    html += '</ul>';
+    if (found > 20){ html += '<p class="dm">... and ' + (found - 20) + ' more</p>'; }
+    html += '</div>';
+    if (r.exposed_types && r.exposed_types.length){
+      html += '<div class="sec"><div class="t">What was exposed across those</div>' +
+              '<p class="dm">' + esc(r.exposed_types.join(", ")) + '</p></div>';
+    }
+  }
+  html += '</div>';
+  $("breachOut").innerHTML = html;
+}
+</script>
+</body>
+</html>

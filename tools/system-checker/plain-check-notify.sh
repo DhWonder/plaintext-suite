@@ -47,7 +47,13 @@ fi
 REPORT=$(mktemp "${TMPDIR:-/tmp}/plain-check.XXXXXX") || exit 2
 trap 'rm -f "$REPORT"' EXIT INT TERM
 
-"$CHECKER" > "$REPORT" 2>&1
+# --check, not the whole thing. This wrapper exists to email you when
+# something is wrong, and the hardware inventory does not change from one
+# week to the next. Putting it in a weekly email is how the email becomes
+# something you delete without reading, and then you delete the one that
+# mattered too. Run plain-check by hand when you want to know what the
+# machine is.
+"$CHECKER" --check > "$REPORT" 2>&1
 STATUS=$?
 cat "$REPORT"
 

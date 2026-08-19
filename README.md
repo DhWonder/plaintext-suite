@@ -18,7 +18,7 @@ limitations written down.
 | [email-checker](tools/email-checker) | Python | Is this email a scam, is the attachment safe to open, where do its links actually go, can the sender's domain be forged, and has this password or address been leaked? One verdict, and the message never leaves your machine. |
 | [domain-checker](tools/domain-checker) | Python | Can a criminal send email pretending to be this business? (SPF/DMARC) |
 | [backup-checker](tools/backup-checker) | shell | Verifies backups actually ran, and that they can actually restore. |
-| [system-checker](tools/system-checker) | C | A read-only health and security look-over of a Linux machine. |
+| [system-checker](tools/system-checker) | C + PowerShell | What is this machine (make, OS, processor, memory, graphics, disks, network, real or virtual) and is anything wrong with it. C for Linux, PowerShell for Windows, same report from both. |
 
 All six can email you when they find something, which is the difference between
 a tool that answers a question and one that watches for you. It is off

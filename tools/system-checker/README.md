@@ -1,87 +1,182 @@
-# plain-check
+# system-checker
 
-A small program that looks over a Linux machine and reports what it finds in
-plain English — the way I'd explain it to a client across the table, not the way
-a scanner dumps it into a log.
+What is this machine, and is anything wrong with it? Answered in plain English.
 
-```
-Disk space
-  [LOOK]  the main disk is 88% full. Not urgent, but plan a cleanup
-          before it becomes urgent.
+Two jobs in one run, in the order you actually need them when somebody hands you
+a machine you have never seen:
 
-User accounts
-  [RISK]  account 'user1' has NO password. Anyone at the keyboard can
-          become them. Set a password or lock the account today.
-```
+**1. What am I looking at.** Make and model, operating system, processor, memory,
+graphics, disks, network, and whether this is real hardware or a virtual machine.
+The things you want to know before you touch anything, and the things that go on
+a quote.
 
-## Why this exists
+**2. Is anything wrong.** Full disks, forgotten open ports, accounts with no
+password, system files anyone can edit, and on Windows the firewall, antivirus,
+disk encryption and how long since it was patched.
 
-Security tools mostly talk to security people. When a small business asks "is this
-machine okay?", the honest answer usually involves five boring things — a disk
-about to fill up, a machine that hasn't rebooted (so hasn't really updated) in
-months, a forgotten open port, an account with no password, a system file anyone
-can edit. plain-check walks exactly that list and explains each finding, calmly.
-
-It's also deliberately written in plain ANSI C with no dependencies: it compiles
-on more or less anything with a C compiler, and the source is meant to be read.
-If you're curious what your machine is being checked for, open the .c file —
-every check has a comment explaining, in normal words, why it matters.
-
-## What it checks
-
-Disk fullness on the main drive, days since the last restart, listening network
-ports (with plain-English notes on famous trouble ports like Telnet and exposed
-Remote Desktop), accounts with no password or with hidden administrator power,
-and world-writable files under /etc.
-
-## What it does NOT do
-
-It never changes anything — it only reads. It's a ten-second look-over, not a
-professional audit: passing plain-check means "nothing obviously wrong," not
-"secure." For the real thing, that's literally my day job — see the link below.
-
-## Build and run
-
-```
-cc -ansi -pedantic -Wall -Wextra -o plain-check plain-check.c
-./plain-check          # sudo ./plain-check to include the password checks
-```
-
-The exit code is 0 (healthy), 1 (worth a look) or 2 (real risk found), so you can
-run it from a script and only get emailed when something needs attention.
-
-## Getting emailed when something needs attention
-
-That script is included, because "run it from cron and cron will email you" has
-not been true on a stock server for years:
-
-```
-sh plain-check-notify.sh notify setup    write ~/.plaintext/notify.conf
-sh plain-check-notify.sh notify test     prove it can actually send
-sh plain-check-notify.sh                 run the check, email if anything is wrong
-sh plain-check-notify.sh --always        email even when the machine is fine
-
-0 8 * * 1 sh /path/to/plain-check-notify.sh
-```
-
-It runs `plain-check`, prints exactly what plain-check printed, and emails you
-that same text when the exit code is 1 or 2. A healthy machine sends nothing.
-
-The C program is untouched by any of this, deliberately. Teaching it to speak
-SMTP would put a second copy of that logic in a second language, and then two
-tools in this suite could disagree about what they sent. It reads, it prints, it
-exits with a number; the wrapper does the rest, using the same `notify.py` every
-other tool here uses. See [`../notifications`](../notifications).
-
-## Honest limitations
-
-- Linux only (it reads /proc and /etc directly). The port and account checks
-  have no meaning on other systems.
-- The known-trouble port list is short and opinionated on purpose — it flags the
-  doors that hurt small businesses in practice, not every theoretical one.
-- Without sudo, the no-password check politely skips instead of guessing.
+It only ever **reads**. It changes nothing, installs nothing, starts nothing, and
+sends nothing anywhere.
 
 ---
 
-Written by DhWonder · Plaintext IT — technology,
-translated. MIT license: use it, share it, no strings.
+## Two machines, two collectors
+
+There are two of these because there are two kinds of machine, and the honest way
+to read a Windows box is to ask Windows rather than to guess.
+
+| | | |
+|---|---|---|
+| **plain-check.c** | Linux | ANSI C, no dependencies, compiles anywhere |
+| **windows-check.ps1** | Windows | PowerShell, nothing to install |
+
+Both print the same report in the same order, so you can put two machines side by
+side and read them the same way.
+
+If you are not sure which you want, ask:
+
+```
+sh system-check.sh
+```
+
+```
+  Which machine are you looking at?
+
+    1) this Linux machine
+    2) a Windows machine
+
+  Choose [1 or 2, default 1]:
+```
+
+It defaults to whatever it is running on, builds the Linux one if it has not been
+built yet, and for Windows hands you the command to take to that machine. It takes
+an answer on the command line too (`sh system-check.sh linux`), so it never sits
+waiting at a prompt in a script or in cron.
+
+---
+
+## Running them directly
+
+**Linux**
+
+```
+make                    build it
+./plain-check           both halves
+./plain-check --what    just what the machine is
+./plain-check --check   just the health and security checks
+sudo ./plain-check      include the password check and the serial number
+```
+
+**Windows**
+
+```
+powershell -ExecutionPolicy Bypass -File windows-check.ps1
+powershell -ExecutionPolicy Bypass -File windows-check.ps1 -What
+powershell -ExecutionPolicy Bypass -File windows-check.ps1 -Check
+```
+
+Run PowerShell as Administrator to include the account, firewall and BitLocker
+checks. Without it the tool says which parts it could not see, rather than quietly
+leaving them out.
+
+---
+
+## What it tells you
+
+Facts first, with no judgement attached, because the inventory is describing the
+machine rather than grading it:
+
+```
+Operating system
+  distribution   Ubuntu 24.04.4 LTS
+  kernel         Linux 6.8.0-51-generic
+  architecture   x86_64
+  hostname       reception-pc
+
+Real or virtual
+  running on     a virtual machine on VMware
+
+Processor
+  model          Intel(R) Core(TM) i5-8500 CPU @ 3.00GHz
+  count          6 logical processors
+  virtualisation supported by the processor
+
+Memory
+  fitted         15.6 GB
+  free right now 9.1 GB (58% of the total)
+  swap           2.0 GB
+```
+
+Then the checks, in three kinds of line: `[ OK ]` is fine, `[LOOK]` is worth ten
+minutes sometime soon, `[RISK]` is worth acting on this week.
+
+```
+User accounts
+  [RISK]  account 'test' has NO password. Anyone at the keyboard can become them.
+  [ OK ]  only 'root' has administrator-level user id. As it should be.
+```
+
+The exit code says the same thing for a script: **0** healthy, **1** something worth
+a look, **2** a real risk.
+
+---
+
+## Where the numbers come from
+
+Everything on Linux is read from files the kernel already publishes: `/proc`,
+`/sys` and `/etc`. No commands are run and nothing is parsed out of another tool's
+output, so there is nothing to install and nothing to go wrong when a distribution
+changes its formatting.
+
+On Windows it uses the CIM classes that ship with the operating system, which is
+why it works on a machine you are not allowed to put software on. That is usually
+the machine that most needs looking at.
+
+**If a file or a class is not there, the tool says it could not tell.** It never
+fills a gap with a guess. This matters more than it sounds on the Windows side,
+where "there is no antivirus on this machine" and "I could not ask about
+antivirus" lead somewhere completely different, and only one of them is a reason
+to relax.
+
+---
+
+## Honest limitations
+
+- **It reads. It does not fix anything.** Every finding is something for a person
+  to decide about.
+- **It looks at this machine only.** There is no network scanning here and no
+  reaching into anything else. If you want to look at a client's machine, you run
+  it on that machine, with their agreement.
+- **The security checks are a short list, not an audit.** They cover the handful
+  of things that actually bite small businesses. A clean run means those things
+  are fine, not that the machine is secure.
+- **Some things need root or Administrator**: the password check and the hardware
+  serial on Linux, the accounts, firewall and BitLocker on Windows. Without it the
+  report says so on the line where the answer should have been.
+- **A container reports its host's disks, memory and ports** as if they were its
+  own, because from inside a container they are. plain-check notices it is in a
+  container and says to read those numbers with that in mind.
+- **macOS is not covered.** `system-check.sh` says so rather than pretending.
+
+---
+
+## Layout
+
+```
+plain-check.c        the Linux collector, ANSI C
+windows-check.ps1    the Windows collector, PowerShell
+system-check.sh      asks which machine, then runs the right one
+plain-check-notify.sh  runs plain-check and emails the report if it finds something
+notify.py            the shared notification code, same as the other tools
+Makefile             build, and `make check` to prove it still works
+```
+
+`plain-check` is C and stays C: teaching a C program to speak SMTP would mean a
+second copy of the notification logic in a second language, which is how two tools
+end up disagreeing about what they sent. So the C program reads, prints, and exits
+0, 1 or 2, and the shell wrapper next to it hands that output to the shared
+notifier. [`../notifications`](../notifications) is the whole story.
+
+---
+
+Written by DhWonder for [Plaintext IT](https://github.com/DhWonder/plaintext-suite). MIT licensed.
+Run it on your own machines, or on ones you have permission to look at.

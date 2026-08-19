@@ -58,9 +58,24 @@ class Console(object):
         return {"ok": True}
 
     def report(self, payload):
-        if payload.get("kind") == "session":
-            self.store.save_session(payload["sensor"], payload["session"])
-            self._notify_session(payload["sensor"], payload["session"])
+        """A sensor telling the console what happened to it.
+
+        An unrecognised report is refused rather than answered with ok. Saying
+        "fine" to something you then throw away is how a sensor ends up
+        reporting into a void for a month while the console shows nothing, and
+        nobody finds out until they need the record.
+        """
+        kind = payload.get("kind")
+        if kind != "session":
+            return {"ok": False,
+                    "error": "This console only takes reports of kind 'session'. "
+                             "It was sent %s." % (repr(kind) if kind else "nothing")}
+        if not payload.get("sensor") or not payload.get("session"):
+            return {"ok": False,
+                    "error": "A session report needs both 'sensor' and 'session'."}
+
+        self.store.save_session(payload["sensor"], payload["session"])
+        self._notify_session(payload["sensor"], payload["session"])
         return {"ok": True}
 
     def token_triggered(self, token_id, source_ip, detail=""):

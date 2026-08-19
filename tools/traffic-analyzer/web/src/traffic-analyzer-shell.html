@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>traffic-analyzer | network attack analysis in your browser</title>
+<meta name="description" content="Drop in a packet capture and watch it analysed in your browser. Read the report, walk the source list, zoom the map, open any address for its full story. Nothing is uploaded anywhere.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+ :root{--bg:#0B1220;--bg2:#0F1829;--surface:#121C2F;--line:rgba(255,255,255,.09);
+   --line2:rgba(255,255,255,.16);--text:#E8EEF7;--muted:#93A4BF;--cyan:#22D3EE;--violet:#A78BFA;
+   --mint:#34D399;--red:#FB7185;--amber:#FBBF24;}
+ *{margin:0;padding:0;box-sizing:border-box}
+ body{background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,'Segoe UI',sans-serif;
+   line-height:1.6;overflow-x:hidden;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+ html{overflow-x:hidden}
+ h1,h2,h3,.btn,.logo,.tab{font-family:'Outfit','Inter',sans-serif}
+ .mono{font-family:'JetBrains Mono',monospace}
+ .wrap{max-width:1320px;margin:0 auto;padding:0 20px;position:relative;z-index:2}
+ a{color:inherit}
+
+ header{border-bottom:1px solid var(--line);position:sticky;top:0;z-index:60;
+   background:rgba(11,18,32,.9);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
+ .nav{display:flex;align-items:center;justify-content:space-between;padding:13px 0}
+ .logo{font-size:1.15rem;font-weight:700;text-decoration:none;display:flex;align-items:center}
+ .logo .mono{background:linear-gradient(90deg,var(--cyan),var(--violet));-webkit-background-clip:text;
+   background-clip:text;color:transparent}
+ .logo .cur{display:inline-block;width:.5em;height:1.05em;background:var(--cyan);margin:0 6px 0 3px;
+   border-radius:2px;box-shadow:0 0 18px rgba(34,211,238,.6);animation:blink 1.5s step-end infinite}
+ @keyframes blink{0%,55%{opacity:1}56%,100%{opacity:.15}}
+ .back{color:var(--muted);text-decoration:none;font-size:.9rem}
+ .back:hover{color:var(--text)}
+
+ .intro{padding:26px 0 12px}
+ .kicker{display:inline-block;font-family:'JetBrains Mono',monospace;font-size:.72rem;letter-spacing:.16em;
+   text-transform:uppercase;color:var(--cyan);background:rgba(34,211,238,.08);
+   border:1px solid rgba(34,211,238,.22);border-radius:999px;padding:4px 13px;margin-bottom:12px}
+ h1{font-size:clamp(1.6rem,3.4vw,2.3rem);font-weight:800;letter-spacing:-.02em;line-height:1.15}
+ h1 span{background:linear-gradient(100deg,var(--cyan),var(--violet));-webkit-background-clip:text;
+   background-clip:text;color:transparent}
+ .lede{color:var(--muted);max-width:820px;margin-top:12px;font-size:1rem}
+ .fine{opacity:.72}
+ @media(max-width:760px){ .fine{display:none} }
+
+ /* control bar */
+ .bar{display:flex;gap:11px;align-items:center;flex-wrap:wrap;margin:18px 0 12px;
+   background:linear-gradient(160deg,var(--surface),var(--bg2));border:1px solid var(--line);
+   border-radius:16px;padding:13px 15px}
+ .btn{border:none;cursor:pointer;border-radius:999px;padding:10px 20px;font-weight:700;font-size:.9rem;
+   transition:transform .2s,box-shadow .2s,border-color .2s,color .2s;color:#06121C;
+   background:linear-gradient(135deg,var(--cyan),#5EEAD4);box-shadow:0 0 26px rgba(34,211,238,.26)}
+ .btn:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 0 42px rgba(34,211,238,.45)}
+ .btn:disabled{opacity:.45;cursor:not-allowed;transform:none;box-shadow:none}
+ .btn.sec{background:rgba(255,255,255,.05);color:var(--text);border:1px solid var(--line2);box-shadow:none}
+ .btn.sec:hover:not(:disabled){border-color:var(--cyan);color:#A5F3FC}
+ .btn.sm{padding:7px 14px;font-size:.82rem}
+ .btn.live{background:linear-gradient(135deg,var(--red),#F472B6);color:#1A0710;
+   box-shadow:0 0 26px rgba(251,113,133,.3)}
+ .drop{border:1.5px dashed var(--line2);border-radius:12px;padding:9px 16px;font-size:.86rem;
+   color:var(--muted);cursor:pointer;transition:border-color .2s,background .2s;white-space:nowrap}
+ .drop:hover,.drop.over{border-color:var(--cyan);background:rgba(34,211,238,.07);color:#A5F3FC}
+ .sel{background:var(--bg2);color:var(--text);border:1px solid var(--line2);border-radius:9px;
+   padding:8px 10px;font-family:inherit;font-size:.86rem;max-width:260px}
+ .clock{margin-left:auto;font-family:'JetBrains Mono',monospace;color:var(--muted);font-size:.85rem;
+   text-align:right}
+ .clock b{color:var(--cyan)}
+
+ /* a quiet button, for the things that are offered rather than urged */
+ .quiet{background:none;border:none;color:var(--muted);font-family:inherit;font-size:.83rem;
+   cursor:pointer;padding:6px 4px;border-bottom:1px dashed rgba(255,255,255,.22);
+   transition:color .18s,border-color .18s}
+ .quiet:hover{color:var(--cyan);border-color:var(--cyan)}
+
+ /* playback */
+ .playbar{display:none;gap:11px;align-items:center;flex-wrap:wrap;margin:0 0 12px;
+   background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:11px 15px}
+ .playbar.on{display:flex}
+ .btn.play{padding:9px 20px;font-size:.87rem}
+ .ptrack{flex:1;min-width:130px;height:6px;background:rgba(255,255,255,.07);border-radius:99px;
+   overflow:hidden;cursor:pointer}
+ .pfill{height:100%;width:0;border-radius:99px;
+   background:linear-gradient(90deg,var(--cyan),var(--violet))}
+ .pclock{font-size:.82rem;color:var(--muted);min-width:78px;text-align:right}
+ .phint{font-size:.78rem;color:var(--muted);width:100%}
+ .playbar.running .phint{color:var(--cyan)}
+
+ .offline{display:none;background:rgba(167,139,250,.06);border:1px solid rgba(167,139,250,.22);
+   border-radius:11px;margin:0 0 12px;overflow:hidden}
+ .offline.on{display:block}
+ .offline summary{cursor:pointer;list-style:none;padding:9px 15px;font-size:.82rem;color:#DDD6FE;
+   display:flex;align-items:center;gap:9px}
+ .offline summary::-webkit-details-marker{display:none}
+ .offline summary::after{content:"+";color:var(--violet);font-family:'JetBrains Mono',monospace;
+   margin-left:auto;transition:transform .25s}
+ .offline[open] summary::after{transform:rotate(45deg)}
+ .offline .obody{padding:0 15px 13px;font-size:.82rem;color:var(--muted);line-height:1.65}
+ .offline code{background:rgba(11,18,32,.7);border:1px solid var(--line);border-radius:6px;
+   padding:1px 7px;color:var(--cyan);font-size:.79rem}
+
+ /* progress while a big capture is being read */
+ .prog{display:none;margin:0 0 12px;background:var(--surface);border:1px solid var(--line);
+   border-radius:12px;padding:12px 15px}
+ .prog.on{display:block}
+ .prog .track{height:8px;background:rgba(255,255,255,.07);border-radius:99px;overflow:hidden;
+   margin-top:8px}
+ .prog .fill{height:100%;background:linear-gradient(90deg,var(--cyan),var(--violet));
+   border-radius:99px;width:0;transition:width .18s}
+ .prog .fill.spin{width:35%;animation:slide 1.1s ease-in-out infinite}
+ @keyframes slide{0%{margin-left:-35%}100%{margin-left:100%}}
+ .prog .txt{font-family:'JetBrains Mono',monospace;font-size:.82rem;color:var(--muted);
+   display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+
+ .err{display:none;background:rgba(251,113,133,.1);border:1px solid rgba(251,113,133,.4);
+   color:#FECDD3;border-radius:12px;padding:12px 16px;margin:0 0 12px;font-size:.9rem}
+ .err.on{display:block}
+ .err b{display:block;margin-bottom:3px;color:#FB7185}
+
+ .note{background:rgba(34,211,238,.06);border:1px solid rgba(34,211,238,.2);color:#A5F3FC;
+   border-radius:10px;padding:9px 14px;margin:0 0 12px;font-size:.84rem;display:none}
+ .note.on{display:block}
+
+ .inline{display:none;background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.25);
+   color:#FDE68A;border-radius:11px;padding:9px 15px;margin:0 0 12px;font-size:.8rem;line-height:1.6}
+ .inline.on{display:block}
+
+ /* example captures */
+ .examples{display:none;background:var(--surface);border:1px solid var(--line);border-radius:14px;
+   padding:14px 16px;margin:0 0 12px}
+ .examples.on{display:block}
+ .exhead{font-weight:600;font-size:.92rem;margin-bottom:11px}
+ .exhead span{display:block;font-weight:400;font-size:.8rem;color:var(--muted);margin-top:3px}
+ .exgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(232px,1fr));gap:9px}
+ .ex{text-align:left;background:var(--bg2);border:1px solid var(--line);border-radius:11px;
+   padding:11px 13px;cursor:pointer;color:var(--text);font-family:inherit;transition:.18s}
+ .ex:hover{border-color:var(--cyan);transform:translateY(-2px)}
+ .ex b{display:block;font-size:.87rem;margin-bottom:3px}
+ .ex span{display:block;font-size:.77rem;color:var(--muted);line-height:1.5}
+ .ex i{display:block;font-style:normal;font-family:'JetBrains Mono',monospace;font-size:.7rem;
+   color:var(--cyan);margin-top:6px}
+
+ /* what this capture can see */
+ .scope{display:none;background:var(--surface);border:1px solid var(--line);border-radius:12px;
+   padding:11px 15px;margin:12px 0 0;font-size:.82rem;color:var(--muted)}
+ .scope.on{display:block}
+ .scope b{color:var(--text)}
+ .scope .mono{color:var(--cyan)}
+ .scope .row{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:6px}
+ .scope details{background:none;border:none;margin:0}
+ .scope summary{padding:4px 0;font-size:.8rem;font-weight:400;color:var(--muted)}
+ .scope summary::after{content:"+";color:var(--cyan);margin-left:6px}
+ .scope details[open] summary::after{content:"\2212"}
+ .scope .sbody{padding:2px 0 4px;line-height:1.65}
+
+ /* tabs */
+ .tabs{display:flex;gap:7px;flex-wrap:wrap;margin:14px 0 0;border-bottom:1px solid var(--line);
+   padding-bottom:0}
+ .tab{padding:10px 17px;cursor:pointer;font-weight:600;font-size:.92rem;color:var(--muted);
+   border:1px solid transparent;border-bottom:none;border-radius:11px 11px 0 0;transition:.18s;
+   display:flex;flex-direction:column;line-height:1.25}
+ .tab small{font-size:.68rem;font-weight:400;opacity:.75}
+ .tab:hover{color:var(--text);background:rgba(255,255,255,.03)}
+ .tab.on{color:var(--cyan);background:var(--surface);border-color:var(--line);
+   box-shadow:inset 0 2px 0 var(--cyan)}
+
+ /* status + KPIs */
+ .status{margin:14px 0 0;border-radius:13px;padding:13px 17px;border:1px solid var(--line);
+   background:var(--surface);font-size:.93rem;transition:.3s}
+ .status b{display:block;font-family:'Outfit',sans-serif;font-size:1.02rem;margin-bottom:2px}
+ .status.calm{border-color:rgba(52,211,153,.35);background:rgba(52,211,153,.07)}
+ .status.calm b{color:var(--mint)}
+ .status.warn{border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.08)}
+ .status.warn b{color:var(--amber)}
+ .status.bad{border-color:rgba(251,113,133,.45);background:rgba(251,113,133,.09)}
+ .status.bad b{color:var(--red)}
+
+ .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:11px;margin:13px 0}
+ .kpi{background:var(--surface);border:1px solid var(--line);border-radius:13px;padding:13px 15px}
+ .kpi .n{font-family:'JetBrains Mono',monospace;font-size:1.5rem;font-weight:700;line-height:1.1}
+ .kpi .l{font-size:.74rem;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-top:3px}
+ .kpi.cy .n{color:var(--cyan)} .kpi.mi .n{color:var(--mint)} .kpi.red .n{color:var(--red)}
+ .kpi.am .n{color:var(--amber)} .kpi.vi .n{color:var(--violet)}
+
+ /* views */
+ .stage{background:var(--surface);border:1px solid var(--line);border-top:none;
+   border-radius:0 0 16px 16px;padding:20px;min-height:520px;margin-bottom:26px}
+ .view{display:none} .view.on{display:block}
+
+ h2{font-size:1.12rem;font-weight:700;margin-bottom:5px}
+ h3{font-size:.96rem;font-weight:600;margin-bottom:6px}
+ .sub{color:var(--muted);font-size:.85rem;margin-bottom:14px}
+ .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+ .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+ @media(max-width:900px){.grid2,.grid3{grid-template-columns:1fr}}
+
+ .card{background:var(--bg2);border:1px solid var(--line);border-radius:13px;padding:15px 17px;
+   margin-bottom:14px}
+ .card.bad{border-color:rgba(251,113,133,.35)}
+ .verdict{font-size:1.28rem;font-weight:800;font-family:'Outfit',sans-serif;margin-bottom:7px}
+ .verdict.bad{color:var(--red)} .verdict.good{color:var(--mint)}
+
+ /* tables */
+ .tbl{width:100%;border-collapse:collapse;font-size:.86rem}
+ .tbl th{text-align:left;padding:8px 9px;color:var(--muted);font-weight:600;font-size:.72rem;
+   text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid var(--line2);
+   position:sticky;top:0;background:var(--surface);z-index:2;cursor:pointer;user-select:none;
+   white-space:nowrap}
+ .tbl th:hover{color:var(--cyan)}
+ .tbl th.sorted::after{content:" \2193";color:var(--cyan)}
+ .tbl td{padding:7px 9px;border-bottom:1px solid var(--line)}
+ .tbl tbody tr{cursor:pointer;transition:background .12s}
+ .tbl tbody tr:hover{background:rgba(34,211,238,.07)}
+ .tbl tbody tr.pick{background:rgba(34,211,238,.13)}
+ .num{font-family:'JetBrains Mono',monospace;text-align:right}
+ .ipcell{font-family:'JetBrains Mono',monospace;color:var(--cyan);white-space:nowrap}
+
+ .pill{display:inline-block;padding:2px 9px;border-radius:99px;font-size:.7rem;font-weight:700;
+   text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
+ .pill.critical{background:rgba(251,113,133,.17);color:var(--red)}
+ .pill.high{background:rgba(251,191,36,.17);color:var(--amber)}
+ .pill.watch{background:rgba(34,211,238,.15);color:var(--cyan)}
+ .pill.normal{background:rgba(52,211,153,.15);color:var(--mint)}
+
+ /* source browser */
+ .filters{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+ .search{background:var(--bg2);border:1px solid var(--line2);border-radius:9px;padding:8px 12px;
+   color:var(--text);font-family:'JetBrains Mono',monospace;font-size:.85rem;min-width:230px}
+ .search:focus{outline:none;border-color:var(--cyan)}
+ .chip{padding:5px 13px;border-radius:99px;border:1px solid var(--line2);font-size:.78rem;
+   cursor:pointer;color:var(--muted);transition:.15s;white-space:nowrap}
+ .chip:hover{border-color:var(--cyan);color:var(--text)}
+ .chip.on{background:rgba(34,211,238,.14);border-color:var(--cyan);color:var(--cyan);font-weight:600}
+ .count{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:.8rem;color:var(--muted)}
+
+ .scroller{max-height:560px;overflow-y:auto;border:1px solid var(--line);border-radius:11px;
+   background:var(--bg2)}
+ .scroller::-webkit-scrollbar{width:10px}
+ .scroller::-webkit-scrollbar-track{background:rgba(255,255,255,.03)}
+ .scroller::-webkit-scrollbar-thumb{background:rgba(255,255,255,.16);border-radius:99px}
+ .scroller::-webkit-scrollbar-thumb:hover{background:var(--cyan)}
+ .loadmore{padding:11px;text-align:center;color:var(--muted);font-size:.83rem;cursor:pointer}
+ .loadmore:hover{color:var(--cyan);background:rgba(34,211,238,.05)}
+
+ /* map */
+ .mapwrap{position:relative;border:1px solid var(--line);border-radius:13px;overflow:hidden;
+   background:#060B14}
+ .mapwrap canvas{display:block;width:100%;cursor:grab;touch-action:none}
+ .mapwrap canvas.drag{cursor:grabbing}
+ .mapctl{position:absolute;top:11px;right:11px;display:flex;flex-direction:column;gap:5px;z-index:5}
+ .mapctl button{width:33px;height:33px;border-radius:9px;border:1px solid var(--line2);
+   background:rgba(11,18,32,.86);color:var(--text);cursor:pointer;font-size:1rem;font-weight:700;
+   -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);transition:.15s;line-height:1}
+ .mapctl button:hover{border-color:var(--cyan);color:var(--cyan)}
+ .mapctl button.wide{width:33px;font-size:.66rem;font-weight:600}
+ .maphint{position:absolute;left:11px;bottom:11px;font-family:'JetBrains Mono',monospace;
+   font-size:.72rem;color:var(--muted);background:rgba(11,18,32,.8);padding:5px 10px;
+   border-radius:8px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);pointer-events:none}
+ .mapzoom{position:absolute;right:11px;bottom:11px;font-family:'JetBrains Mono',monospace;
+   font-size:.72rem;color:var(--cyan);background:rgba(11,18,32,.8);padding:5px 10px;
+   border-radius:8px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);pointer-events:none}
+ .tip{position:fixed;pointer-events:none;background:rgba(11,18,32,.96);border:1px solid var(--cyan);
+   border-radius:9px;padding:8px 11px;font-size:.78rem;font-family:'JetBrains Mono',monospace;
+   z-index:200;display:none;box-shadow:0 8px 30px rgba(0,0,0,.6);max-width:280px}
+ .tip.on{display:block}
+
+ /* bars */
+ .bars{display:flex;flex-direction:column;gap:7px}
+ .barrow{display:grid;grid-template-columns:135px 1fr 62px;gap:9px;align-items:center;font-size:.82rem}
+ .barrow .lab{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .barrow .tk{height:8px;background:rgba(255,255,255,.06);border-radius:99px;overflow:hidden}
+ .barrow .fl{height:100%;border-radius:99px;background:linear-gradient(90deg,var(--cyan),var(--violet))}
+ .barrow .vl{font-family:'JetBrains Mono',monospace;text-align:right;font-size:.78rem}
+
+ /* detail panel */
+ .panel{position:fixed;top:0;right:0;width:min(560px,100%);height:100vh;height:100dvh;background:var(--bg2);
+   border-left:1px solid var(--line2);z-index:120;transform:translateX(100%);
+   transition:transform .26s cubic-bezier(.4,0,.2,1);overflow-y:auto;
+   box-shadow:-16px 0 50px rgba(0,0,0,.5)}
+ .panel.on{transform:translateX(0)}
+ .panel::-webkit-scrollbar{width:9px}
+ .panel::-webkit-scrollbar-thumb{background:rgba(255,255,255,.16);border-radius:99px}
+ .phead{position:sticky;top:0;background:rgba(15,24,41,.97);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+   border-bottom:1px solid var(--line);padding:15px 20px;z-index:3}
+ .phead .row{display:flex;align-items:center;gap:10px;justify-content:space-between}
+ .phead .ip{font-family:'JetBrains Mono',monospace;font-size:1.15rem;font-weight:700;color:var(--cyan);
+   word-break:break-all}
+ .pclose{background:none;border:1px solid var(--line2);color:var(--muted);width:30px;height:30px;
+   border-radius:8px;cursor:pointer;font-size:1.05rem;line-height:1;flex-shrink:0}
+ .pclose:hover{border-color:var(--red);color:var(--red)}
+ .pbody{padding:16px 20px 60px}
+ .psec{margin-bottom:19px}
+ .psec h4{font-size:.73rem;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);
+   margin-bottom:8px;font-weight:600;font-family:'Outfit',sans-serif}
+ .facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:8px}
+ .fact{background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:9px;padding:8px 10px}
+ .fact .k{font-size:.66rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+ .fact .v{font-family:'JetBrains Mono',monospace;font-size:.92rem;font-weight:700;margin-top:2px;
+   word-break:break-all}
+ .why{list-style:none}
+ .why li{padding:7px 0 7px 16px;position:relative;font-size:.86rem;border-bottom:1px solid var(--line)}
+ .why li:last-child{border-bottom:none}
+ .why li::before{content:"";position:absolute;left:0;top:14px;width:6px;height:6px;border-radius:50%;
+   background:var(--amber)}
+ .plist{font-size:.83rem}
+ .plist .r{display:flex;justify-content:space-between;gap:10px;padding:5px 0;
+   border-bottom:1px solid var(--line)}
+ .plist .r:last-child{border-bottom:none}
+ .plist .r span:first-child{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .plist .r span:last-child{font-family:'JetBrains Mono',monospace;flex-shrink:0}
+ .peer{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:8px;cursor:pointer;
+   font-size:.82rem;transition:background .13s}
+ .peer:hover{background:rgba(34,211,238,.09)}
+ .peer .pip{font-family:'JetBrains Mono',monospace;color:var(--cyan);flex:1;
+   overflow:hidden;text-overflow:ellipsis}
+ .peer .pn{font-family:'JetBrains Mono',monospace;color:var(--muted);font-size:.76rem}
+ .spark{width:100%;height:56px;display:block;background:rgba(255,255,255,.03);
+   border:1px solid var(--line);border-radius:9px}
+ .backdrop{position:fixed;inset:0;background:rgba(4,8,15,.55);z-index:110;opacity:0;
+   pointer-events:none;transition:opacity .26s}
+ .backdrop.on{opacity:1;pointer-events:auto}
+
+ /* console */
+ .gauge{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+ .feed{max-height:300px;overflow-y:auto;font-family:'JetBrains Mono',monospace;font-size:.78rem}
+ .feed .ln{display:grid;grid-template-columns:64px 1fr;gap:9px;padding:5px 7px;
+   border-bottom:1px solid var(--line);cursor:pointer}
+ .feed .ln:hover{background:rgba(34,211,238,.07)}
+ .feed .t{color:var(--muted)}
+ .feed .rule{color:var(--amber);font-weight:700}
+ .feed .rule.critical{color:var(--red)}
+ .feed .msg{color:var(--muted);display:block;font-size:.74rem}
+
+ .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:.78rem;color:var(--muted);margin-top:9px}
+ .legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px}
+
+ /* ---------- phones ----------
+    A nine column table does not fit on a phone and nobody wants to drag it
+    sideways, so the columns that are nice-to-have step out of the way and the
+    ones that answer "who and how bad" stay. The table can still be scrolled
+    if it needs to. */
+ @media(max-width:760px){
+   .wrap{padding:0 14px}
+   .intro{padding:18px 0 10px}
+   .bar{padding:11px 12px;gap:9px}
+   .clock{margin-left:0;width:100%;text-align:left}
+   .drop{white-space:normal;flex:1}
+   .stage{padding:14px 12px}
+   .tabs{gap:4px;overflow-x:auto;-webkit-overflow-scrolling:touch;flex-wrap:nowrap}
+   .tab{padding:9px 12px;font-size:.85rem;flex-shrink:0}
+   .tab small{display:none}
+   .card{padding:13px 14px;overflow-x:auto;-webkit-overflow-scrolling:touch}
+   .kpis{grid-template-columns:repeat(2,1fr)}
+   .grid2,.grid3{grid-template-columns:1fr}
+   .scroller{max-height:60vh;-webkit-overflow-scrolling:touch}
+   .tbl{font-size:.8rem}
+   .tbl th,.tbl td{padding:7px 6px}
+   .barrow{grid-template-columns:96px 1fr 54px}
+
+   /* worst offenders: keep source, level, packets */
+   #topBody tr td:nth-child(4),#topBody tr td:nth-child(5),
+   #topBody tr td:nth-child(6),#topBody tr td:nth-child(7),
+   #v-report thead th:nth-child(4),#v-report thead th:nth-child(5),
+   #v-report thead th:nth-child(6),#v-report thead th:nth-child(7){display:none}
+
+   /* source browser: keep source, level, packets, rate */
+   #srcBody tr td:nth-child(4),#srcBody tr td:nth-child(6),
+   #srcBody tr td:nth-child(7),#srcBody tr td:nth-child(8),
+   #srcBody tr td:nth-child(9),
+   #v-sources thead th:nth-child(4),#v-sources thead th:nth-child(6),
+   #v-sources thead th:nth-child(7),#v-sources thead th:nth-child(8),
+   #v-sources thead th:nth-child(9){display:none}
+
+   .filters{gap:7px}
+   .search{min-width:0;flex:1;width:100%}
+   .chip{padding:6px 12px}
+   .count{width:100%;margin-left:0}
+   .panel{width:100%}
+   .pbody{padding:14px 16px 70px}
+   .facts{grid-template-columns:repeat(2,1fr)}
+   .mapctl button{width:40px;height:40px}
+   .maphint{font-size:.66rem;left:8px;bottom:8px}
+   .playbar{padding:10px 12px}
+   .pclock{min-width:0}
+ }
+
+ .empty{text-align:center;color:var(--muted);padding:50px 20px;font-size:.9rem}
+ .empty b{display:block;color:var(--text);font-size:1.05rem;margin-bottom:6px;
+   font-family:'Outfit',sans-serif}
+ .foot{color:var(--muted);font-size:.8rem;border-top:1px solid var(--line);padding:16px 0 40px;
+   margin-top:8px}
+ .foot b{color:var(--text)}
+</style>
+</head>
+<body>
+
+<header><div class="wrap nav">
+  <a class="logo" href="index.html"><span class="mono">plaintext</span><span class="cur"></span>IT</a>
+  <a class="back" href="index.html">Back to the main site</a>
+</div></header>
+
+<section class="intro"><div class="wrap">
+  <span class="kicker">traffic-analyzer, running in your browser</span>
+  <h1>Drop in a capture and watch it get <span>taken apart</span></h1>
+  <p class="lede">The actual tool, not a video of it. Your capture is read by your own browser and
+  never uploaded anywhere. Open any address for its full story.
+  <span class="fine">Reads pcap and pcapng, gzipped or not, IPv4 and IPv6, and streams big files
+  rather than swallowing them whole.</span></p>
+
+  <div class="err" id="err"></div>
+  <div class="note" id="note"></div>
+
+  <div class="bar">
+    <label class="drop" id="drop">Drop a capture here, or click to choose
+      <input type="file" id="file" accept=".pcap,.pcapng,.cap,.dmp,.gz" hidden></label>
+    <button class="quiet" id="examplesBtn">or see what an attack looks like</button>
+    <select class="sel" id="sessions" style="display:none"></select>
+    <button class="btn live" id="liveBtn" style="display:none">Start live capture</button>
+    <button class="quiet" id="resetBtn" style="display:none">reset</button>
+    <span class="clock" id="clock">nothing loaded</span>
+  </div>
+
+  <!-- Six captures showing what each kind of thing actually looks like -->
+  <div class="examples" id="examples">
+    <div class="exhead">Example captures
+      <span>Synthetic traffic I generated, not anyone's real network. Load one to see how each
+        kind of trouble reads, including the one where nothing is wrong.</span></div>
+    <div class="exgrid" id="exGrid"></div>
+  </div>
+
+  <!-- Playing the capture back, rather than only showing the finished total -->
+  <div class="playbar" id="playbar">
+    <button class="btn play" id="playBtn">Play it through</button>
+    <button class="quiet" id="restartBtn" style="display:none">restart</button>
+    <div class="ptrack" id="ptrack"><div class="pfill" id="pfill"></div></div>
+    <span class="pclock mono" id="pclock">0:00</span>
+    <select class="sel" id="speed" title="playback speed">
+      <option value="26">fast</option>
+      <option value="62" selected>normal</option>
+      <option value="150">slow</option>
+    </select>
+    <span class="phint" id="phint">watch the attack build up second by second</span>
+  </div>
+
+  <!-- Only shown when the page is opened straight from disk, where live
+       capture cannot work. Better to say so than to leave a gap. -->
+  <details class="offline" id="offline">
+    <summary>Live capture is not available when this page is opened from a file. Why, and how to get it</summary>
+    <div class="obody">A browser is not allowed to read packets off a network card, so watching
+      traffic as it happens needs the Python side running on the machine you want to watch:
+      <code class="mono">python3 flood_watch.py watch</code> then open
+      <code class="mono">http://127.0.0.1:8724</code>. It serves this exact page, plus a live
+      capture button and a list of every capture you have saved. Everything else here, reading
+      capture files of any size, works right now with nothing running.</div>
+  </details>
+
+  <div class="inline" id="inline">
+    Reading this capture on the page thread. This browser would not let a background
+    thread read a file from a page opened straight off the disk, which is a Safari rule
+    rather than anything wrong with the capture. Everything works the same. A very large
+    capture will just make the page sit still while it reads, instead of staying smooth.
+  </div>
+
+  <div class="prog" id="prog">
+    <div class="txt"><span id="progWhat">reading...</span><span id="progNum"></span></div>
+    <div class="track"><div class="fill" id="progFill"></div></div>
+  </div>
+
+  <div class="scope" id="scope"></div>
+
+  <div class="tabs" id="tabs">
+    <div class="tab on" data-view="report">Report<small>the plain version</small></div>
+    <div class="tab" data-view="sources">Sources<small>every address, searchable</small></div>
+    <div class="tab" data-view="map">World map<small>zoom and drag</small></div>
+    <div class="tab" data-view="soc">Console<small>the operations wall</small></div>
+  </div>
+
+  <div class="status calm" id="status">
+    <b>Nothing loaded yet</b>
+    <span id="statusText">Drop in a capture file, or load the sample attack to see how it reads.</span>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi cy"><div class="n" id="k1">0</div><div class="l">packets read</div></div>
+    <div class="kpi mi"><div class="n" id="k2">0</div><div class="l">sources seen</div></div>
+    <div class="kpi red"><div class="n" id="k3">0</div><div class="l">hostile</div></div>
+    <div class="kpi am"><div class="n" id="k4">0</div><div class="l">busiest second</div></div>
+    <div class="kpi vi"><div class="n" id="k5">0</div><div class="l">attack types found</div></div>
+  </div>
+
+  <div class="stage">
+
+    <!-- ============ REPORT ============ -->
+    <div class="view on" id="v-report">
+      <div class="card bad" id="verdictCard">
+        <div class="verdict" id="verdictHead">Waiting for a capture</div>
+        <p id="verdictBody" style="color:var(--muted);font-size:.92rem">
+          Load a capture and the plain English verdict appears here.</p>
+      </div>
+
+      <div class="grid2">
+        <div class="card">
+          <h3>Traffic over time</h3>
+          <p class="sub" id="tlSub">packets per second across the capture</p>
+          <canvas id="tlChart" style="width:100%;height:150px;display:block"></canvas>
+        </div>
+        <div class="card">
+          <h3>What the file actually was</h3>
+          <p class="sub">read straight from the capture, not assumed</p>
+          <div class="plist" id="fileFacts"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>The worst offenders</h3>
+        <p class="sub">click any row to open everything known about that address</p>
+        <table class="tbl">
+          <thead><tr><th>Source</th><th>Level</th><th class="num">Packets</th>
+            <th class="num">Rate/s</th><th>Protocol</th><th>Region</th><th>Why</th></tr></thead>
+          <tbody id="topBody"></tbody>
+        </table>
+      </div>
+
+      <div class="grid3">
+        <div class="card"><h3>Where it came from</h3>
+          <p class="sub">by registry region</p><div class="bars" id="regionBars"></div></div>
+        <div class="card"><h3>What it was aimed at</h3>
+          <p class="sub">busiest destination ports</p><div class="bars" id="portBars"></div></div>
+        <div class="card"><h3>Protocols</h3>
+          <p class="sub">share of all packets</p><div class="bars" id="protoBars"></div></div>
+      </div>
+
+      <div class="card" id="cohortCard" style="display:none">
+        <h3>Groups behaving identically</h3>
+        <p class="sub">addresses sending the same shape of traffic, which usually means one
+          botnet or one tool. Click a group to filter the source list to it.</p>
+        <div id="cohortList"></div>
+      </div>
+
+      <div class="card">
+        <h3>What to change</h3>
+        <p class="sub">in the order worth doing it</p>
+        <div id="recs"></div>
+      </div>
+    </div>
+
+    <!-- ============ SOURCES ============ -->
+    <div class="view" id="v-sources">
+      <h2>Every address in the capture</h2>
+      <p class="sub">Search, sort, filter, then click a row. Scroll to the bottom to load more.</p>
+      <div class="filters">
+        <input class="search" id="q" placeholder="search address, region, network..." spellcheck="false">
+        <span class="chip on" data-level="all">All</span>
+        <span class="chip" data-level="critical">Critical</span>
+        <span class="chip" data-level="high">High</span>
+        <span class="chip" data-level="watch">Watch</span>
+        <span class="chip" data-level="normal">Normal</span>
+        <span class="count" id="srcCount"></span>
+      </div>
+      <div id="activeFilter" style="display:none;margin-bottom:10px"></div>
+      <div class="scroller" id="srcScroll">
+        <table class="tbl">
+          <thead><tr>
+            <th data-sort="ip">Source</th>
+            <th data-sort="score" class="sorted">Level</th>
+            <th data-sort="packets" class="num">Packets</th>
+            <th data-sort="bytes" class="num">Bytes</th>
+            <th data-sort="rate" class="num">Rate/s</th>
+            <th data-sort="ports" class="num">Ports</th>
+            <th>Protocol</th><th>Network</th><th>Region</th>
+          </tr></thead>
+          <tbody id="srcBody"></tbody>
+        </table>
+        <div class="loadmore" id="loadMore" style="display:none">load more</div>
+      </div>
+    </div>
+
+    <!-- ============ MAP ============ -->
+    <div class="view" id="v-map">
+      <h2>Where the traffic came from</h2>
+      <p class="sub">Scroll to zoom, drag to pan, click a dot to open that address. Positions come
+        from which registry the address block was handed out in, so this is roughly right at the
+        continent level and not precise city geolocation. It says so because that matters.</p>
+      <div class="mapwrap" id="mapWrap">
+        <canvas id="map"></canvas>
+        <div class="mapctl">
+          <button id="zIn" title="zoom in">+</button>
+          <button id="zOut" title="zoom out">&minus;</button>
+          <button id="zFit" class="wide" title="fit everything">fit</button>
+        </div>
+        <div class="maphint">scroll to zoom &middot; drag to pan &middot; click a dot</div>
+        <div class="mapzoom" id="zoomLbl">1.0x</div>
+      </div>
+      <div class="legend">
+        <span><i style="background:#FB7185"></i>critical</span>
+        <span><i style="background:#FBBF24"></i>high</span>
+        <span><i style="background:#22D3EE"></i>watch</span>
+        <span><i style="background:#34D399"></i>normal</span>
+        <span style="margin-left:auto" id="mapCount"></span>
+      </div>
+    </div>
+
+    <!-- ============ CONSOLE ============ -->
+    <div class="view" id="v-soc">
+      <h2>The operations wall</h2>
+      <p class="sub">The same findings laid out the way a monitoring console shows them. Every rule
+        name has the plain sentence underneath, so nobody has to look anything up.</p>
+      <div class="grid2">
+        <div class="card">
+          <h3>Pressure</h3>
+          <p class="sub">how much of the traffic is hostile</p>
+          <div class="gauge">
+            <canvas id="gauge" width="150" height="150" style="width:150px;height:150px"></canvas>
+            <div>
+              <div style="font-family:'JetBrains Mono',monospace;font-size:2rem;font-weight:700"
+                   id="gaugeVal">0%</div>
+              <div style="color:var(--muted);font-size:.83rem" id="gaugeLbl">of packets are hostile</div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Severity split</h3>
+          <p class="sub">sources by how they scored</p>
+          <div class="bars" id="sevBars"></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Alert feed</h3>
+        <p class="sub">one line per hostile source, worst first. Click to open it.</p>
+        <div class="feed" id="feed"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="foot">
+    <b>What this is.</b> traffic-analyzer is a tool I wrote and use. The same analysis runs as a Python
+    command line program, and it agrees with this page packet for packet, which is a thing I test
+    rather than assume. <b>What it is not:</b> it does not scan anyone, does not phone home, and does
+    not upload your capture. It reads a file you already have.
+  </div>
+</div></section>
+
+<div class="backdrop" id="backdrop"></div>
+<aside class="panel" id="panel">
+  <div class="phead">
+    <div class="row">
+      <div>
+        <div class="ip" id="pIp">-</div>
+        <div style="font-size:.79rem;color:var(--muted)" id="pSub"></div>
+      </div>
+      <button class="pclose" id="pClose">&times;</button>
+    </div>
+  </div>
+  <div class="pbody" id="pBody"></div>
+</aside>
+<div class="tip" id="tip"></div>
+
+<!--SCRIPTS-->
+</body>
+</html>

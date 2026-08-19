@@ -339,13 +339,18 @@ trafficanalyzer/
   report.py                 the terminal report and the HTML dashboard
   notify.py                 the notification email, shared with the other tools
 web/
+  traffic-analyzer.html     the browser tool, built from src/ below
   traffic-analyzer-packets.html   the packet browser page
+  build-analyzer-ui.py      glues src/ back into the single page
+  src/                      the readable pieces: shell, worker, ui, map data,
+                            example captures. EDIT THESE, then run the build.
 tests/
   make_test_captures.py     builds a capture in every supported shape
   test_capture.py           proves the reader handles all of them
   test_parity.py            proves both engines agree
   test_reputation.py        proves the VirusTotal lookups behave, offline
   test_packets.py           proves the filters and the dissector tell the truth
+  test_pages.py             proves every browser page a tool looks for is there
 make_sample_attack.py       builds the synthetic attack used in the demo
 samples/attack.pcap         that attack, ready to run
 ```

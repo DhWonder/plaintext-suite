@@ -259,8 +259,17 @@ def run_report(options):
 
 
 def find_ui():
+    """Where the console page might be sitting, in order of preference.
+
+    The page ships inside the package, next to the code that serves it, so a
+    copy of just this folder still has a working console. The other paths are
+    for when it has been unpacked somewhere else or is being served from the
+    website copy.
+    """
     here = os.path.dirname(os.path.abspath(__file__))
     candidates = [
+        os.path.join(here, "decoyhouse", "console.html"),
+        os.path.join(here, "web", "decoy-house-console.html"),
         os.path.join(here, "console.html"),
         os.path.join(here, "..", "..", "website", "decoy-house-console.html"),
     ]

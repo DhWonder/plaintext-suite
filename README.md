@@ -13,9 +13,9 @@ limitations written down.
 
 | Tool | Language | What it does |
 |------|----------|--------------|
-| [traffic-analyzer](tools/traffic-analyzer) | Python | Reads a network capture and works out who is flooding you, how, and what to change. |
+| [traffic-analyzer](tools/traffic-analyzer) | Python | Reads a network capture and works out who is flooding you, how, and what to change. Includes a packet browser with Wireshark style filters, for when the question is "show me the actual packet". |
 | [decoy-house](tools/decoy-house) | Python | A machine that looks worth breaking into, and tells on whoever does. Honeypot plus a console. |
-| [email-checker](tools/email-checker) | Python | Is this email a scam, is the attachment safe to open, can the sender's domain be forged, and has this password or address been leaked? One verdict, and the message never leaves your machine. |
+| [email-checker](tools/email-checker) | Python | Is this email a scam, is the attachment safe to open, where do its links actually go, can the sender's domain be forged, and has this password or address been leaked? One verdict, and the message never leaves your machine. |
 | [domain-checker](tools/domain-checker) | Python | Can a criminal send email pretending to be this business? (SPF/DMARC) |
 | [backup-checker](tools/backup-checker) | shell | Verifies backups actually ran, and that they can actually restore. |
 | [system-checker](tools/system-checker) | C | A read-only health and security look-over of a Linux machine. |
@@ -29,6 +29,22 @@ message. That is the only part of the suite that sends anything anywhere.
 Start with **traffic-analyzer**. It parses capture files by hand, tells a SYN flood
 apart from a port scan, spots reflection attacks, and finishes with recommendations
 you can act on.
+
+## Two rules the newer work follows
+
+**Ask more than one database, and cross the answers.** Where a tool asks something
+outside itself, whether an address is a known attacker or a link goes somewhere real, it
+asks several sources and says who said what. One database is a rumour; several that
+agree are a finding. The disagreements matter most: an address VirusTotal calls
+malicious that GreyNoise names as a known scanner is internet wide noise, not an attack
+aimed at you, and a tool that only asked one of them would have told you the wrong
+thing. The free sources are asked first, so these checks work with no account anywhere.
+
+**Never a silent wrong answer.** A filter that will not parse is refused with the
+reason, rather than quietly showing an empty list, because an empty list is how somebody
+concludes there was no attack. "Nobody has heard of this address" is reported as
+unknown, never as safe. When a limit is hit or a source is down, the tool says so
+instead of presenting partial results as complete.
 
 ## Archive
 

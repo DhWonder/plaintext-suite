@@ -176,8 +176,9 @@ def main():
 
     # ---- a blocklist answer is read the right way round -------------------
     listed = reputation.blocklist(
-        "1.2.3.4", "Spamhaus", "zen.spamhaus.org", "listed",
-        timeout=0.001)
+        "1.2.3.4", "Spamhaus", "zen.spamhaus.org", "2.0.0.127",
+        reputation.SPAMHAUS_REFUSALS, "listed",
+        timeout=0.001, resolver=lambda name, timeout=None: None)
     failures += check("a blocklist that cannot be reached says so, not 'clean'",
                       listed["ok"] is False)
 

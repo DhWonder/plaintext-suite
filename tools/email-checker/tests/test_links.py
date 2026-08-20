@@ -31,7 +31,7 @@ def check(name, condition):
 BAD = "secure-billing-verify.com"
 
 
-def fake_blocklist(domain, name, zone, meaning, timeout=12):
+def fake_blocklist(domain, name, zone, test_name, refusals, meaning, timeout=12):
     if domain == BAD:
         return {"source": name, "ok": True, "known": True, "why": meaning + "."}
     return {"source": name, "ok": True, "known": False, "why": "%s does not list it." % name}
@@ -51,7 +51,7 @@ def fake_age_only_new(domain, timeout=12):
             "registered": "2026-08-15", "why": "Registered 3 days ago."}
 
 
-def fake_clean_blocklist(domain, name, zone, meaning, timeout=12):
+def fake_clean_blocklist(domain, name, zone, test_name, refusals, meaning, timeout=12):
     return {"source": name, "ok": True, "known": False, "why": "%s does not list it." % name}
 
 
@@ -113,6 +113,35 @@ def main():
     failures += check("nothing answering reads as could not check",
                       silent["level"] == "unknown")
     failures += check("a failed lookup adds no weight", silent["weight"] == 0)
+
+    # ---- the trap these lists set -----------------------------------------
+    # A blocklist that refuses this resolver answers exactly like one saying
+    # "not listed". If that is believed, every link on earth reads as clean.
+    links._usable_cache = {}
+    refused = links.blocklist(
+        "anything.example", "Spamhaus DBL", "dbl.spamhaus.org", "dbltest.com",
+        links.SPAMHAUS_REFUSALS, "listed",
+        resolver=lambda name, timeout=None: None)
+    failures += check("a list failing its own test point is marked unusable",
+                      refused.get("unusable") is True)
+    failures += check("an unusable list is not counted as an answer",
+                      refused.get("ok") is False)
+    failures += check("an unusable list never says the domain is clean",
+                      "does not list it" not in refused["why"])
+
+    # And a refusal code must never be read as a hit, which would be worse:
+    # it would accuse an innocent domain.
+    links._usable_cache = {}
+
+    def resolver_refuses(name, timeout=None):
+        if name.startswith("dbltest.com."):
+            return ["127.0.1.2"]                 # the list itself works
+        return ["127.255.255.254"]               # but refuses this query
+    hit = links.blocklist(
+        "anything.example", "Spamhaus DBL", "dbl.spamhaus.org", "dbltest.com",
+        links.SPAMHAUS_REFUSALS, "listed", resolver=resolver_refuses)
+    failures += check("a refusal code is not read as a listing", not hit.get("known"))
+    links._usable_cache = {}
 
     # ---- the link changes the whole message's verdict ---------------------
     original = links.check_all

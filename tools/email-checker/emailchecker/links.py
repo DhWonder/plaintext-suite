@@ -36,6 +36,7 @@ WHAT LEAVES YOUR MACHINE
 
 import json
 import re
+import socket
 import time
 import urllib.error
 import urllib.parse
@@ -45,12 +46,26 @@ TIMEOUT = 12
 AGENT = "email-checker (plaintext IT)"
 DOH_URL = "https://dns.google/resolve"
 
-# Domain blocklists, asked over DNS. No key, no account.
+# Answers inside 127.0.0.0/8 that mean "I will not answer you" rather than
+# "this is listed". Per list, because the same number means different things to
+# different lists.
+SPAMHAUS_REFUSALS = {
+    "127.255.255.252", "127.255.255.253", "127.255.255.254", "127.255.255.255",
+}
+SURBL_REFUSALS = {"127.0.0.1", "127.0.0.254"}
+
+# Domain blocklists, with the test point each publishes. No key, no account.
+#
+# The test point matters because these lists refuse queries that arrive through
+# a big public resolver, and a refused query looks exactly like "not listed". A
+# tool that believes it calls every link clean, for ever, while sounding sure.
+# So each list is asked its own test point first, and if that does not come
+# back listed the honest answer about the domain is "could not check".
 BLOCKLISTS = [
-    ("Spamhaus DBL", "dbl.spamhaus.org",
+    ("Spamhaus DBL", "dbl.spamhaus.org", "dbltest.com", SPAMHAUS_REFUSALS,
      "Spamhaus lists this domain, which means it is already known for phishing, "
      "malware or spam"),
-    ("SURBL", "multi.surbl.org",
+    ("SURBL", "multi.surbl.org", "test", SURBL_REFUSALS,
      "SURBL lists this domain, which means it has been seen in spam or phishing "
      "messages"),
 ]
@@ -101,25 +116,60 @@ def domains_in(links, limit=8):
 # ---------------------------------------------------------------------------
 # One source at a time. Each returns the same shape, and none of them raise.
 # ---------------------------------------------------------------------------
-def blocklist(domain, name, zone, meaning, timeout=TIMEOUT):
-    """A domain blocklist, asked over DNS the way a mail server asks."""
-    query = "%s.%s" % (domain, zone)
-    url = "%s?%s" % (DOH_URL, urllib.parse.urlencode({"name": query, "type": "A"}))
-    request = urllib.request.Request(url, headers={"User-Agent": AGENT})
+def _resolve(name, timeout=TIMEOUT):
+    """This machine's own resolver, not a public one: the lists block those."""
+    previous = socket.getdefaulttimeout()
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            data = json.loads(response.read().decode("utf-8", "replace"))
-    except (urllib.error.URLError, urllib.error.HTTPError, OSError, ValueError) as exc:
-        return {"source": name, "ok": False, "known": False,
-                "why": "%s did not answer (%s)." % (name, getattr(exc, "reason", exc))}
+        socket.setdefaulttimeout(timeout)
+        return socket.gethostbyname_ex(name)[2]
+    except socket.gaierror:
+        return None                      # no such name: not listed
+    except OSError:
+        return None
+    finally:
+        socket.setdefaulttimeout(previous)
 
-    answers = [a.get("data", "") for a in (data.get("Answer") or []) if a.get("type") == 1]
-    # Some lists answer 127.255.255.x to mean "your query was wrong", not "listed".
-    real = [a for a in answers if not a.startswith("127.255.")]
-    if data.get("Status") == 3 or not real:
+
+_usable_cache = {}
+
+
+def _list_usable(zone, test_name, refusals, timeout=TIMEOUT, resolver=None):
+    resolver = resolver or _resolve
+    if zone in _usable_cache:
+        return _usable_cache[zone]
+    answers = resolver("%s.%s" % (test_name, zone), timeout) or []
+    good = [a for a in answers if a.startswith("127.") and a not in refusals]
+    _usable_cache[zone] = bool(good)
+    return _usable_cache[zone]
+
+
+def blocklist(domain, name, zone, test_name, refusals, meaning, timeout=TIMEOUT,
+              resolver=None):
+    """A domain blocklist, asked the way a mail server asks."""
+    resolver = resolver or _resolve
+
+    if not _list_usable(zone, test_name, refusals, timeout, resolver):
+        return {"source": name, "ok": False, "known": False, "unusable": True,
+                "why": ("%s would not answer its own test lookup from this machine. "
+                        "These lists refuse queries through a big public resolver, so "
+                        "this says nothing about the domain." % name)}
+
+    answers = resolver("%s.%s" % (domain, zone), timeout)
+    if answers is None:
         return {"source": name, "ok": True, "known": False,
                 "why": "%s does not list it." % name}
-    return {"source": name, "ok": True, "known": True, "codes": real,
+
+    refused = [a for a in answers if a in refusals]
+    hits = [a for a in answers if a.startswith("127.") and a not in refusals]
+
+    if refused and not hits:
+        return {"source": name, "ok": False, "known": False, "unusable": True,
+                "why": ("%s refused the query (%s), which is not the same as saying the "
+                        "domain is clean." % (name, ", ".join(refused)))}
+    if not hits:
+        return {"source": name, "ok": True, "known": False,
+                "why": "%s does not list it." % name}
+    return {"source": name, "ok": True, "known": True, "codes": hits,
             "why": meaning + "."}
 
 
@@ -243,8 +293,8 @@ def check_domain(domain, vt_key="", timeout=TIMEOUT, lookups=None):
     lookups = lookups or {}
     results = []
     runner = lookups.get("blocklist") or blocklist
-    for name, zone, meaning in BLOCKLISTS:
-        results.append(runner(domain, name, zone, meaning, timeout))
+    for name, zone, test_name, refusals, meaning in BLOCKLISTS:
+        results.append(runner(domain, name, zone, test_name, refusals, meaning, timeout))
     results.append((lookups.get("age") or age)(domain, timeout))
     results.append((lookups.get("virustotal") or virustotal_domain)(domain, vt_key, timeout))
 
@@ -257,6 +307,7 @@ def check_domain(domain, vt_key="", timeout=TIMEOUT, lookups=None):
 def combine(domain, results):
     """Cross the sources into one level and one sentence."""
     answered = [r for r in results if r.get("ok")]
+    unusable = [r for r in results if r.get("unusable")]
     bad = [r for r in answered if r.get("known")]
     listed = [r for r in bad if r.get("source") in ("Spamhaus DBL", "SURBL", "VirusTotal")]
     fresh = next((r for r in answered
@@ -280,6 +331,7 @@ def combine(domain, results):
         level = "clean"
 
     return {"level": level, "answered": len(answered), "asked": len(results),
+            "unusable": [r["source"] for r in unusable],
             "bad_count": len(bad),
             "bad_sources": [r["source"] for r in bad],
             "verdict": _verdict(level, domain, listed, fresh, old, answered),

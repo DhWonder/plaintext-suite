@@ -15,11 +15,19 @@ high-value win.
 
 Usage:
     python3 domain_checker.py example.com
+    python3 domain_checker.py example.com --reputation
     python3 domain_checker.py example.com --notify
 
 It looks up public DNS records using an encrypted DNS-over-HTTPS request
 to a public resolver, so it works on any machine with internet and needs
 nothing installed. It only reads public records - nothing private.
+
+With --reputation it also asks what everybody else thinks of the domain, and
+crosses the answers: is it on a blocklist right now (which means their mail is
+being rejected, a different and more urgent problem than a missing record), and
+how long has it existed. Spamhaus, SURBL and the registry need no key at all;
+--vt-key KEY adds VirusTotal. Only the domain name is sent, and it is already
+public.
 
 With --notify it emails you when the answer is bad, which is the point of
 running it from cron once a week: a domain that was protected can stop being
@@ -42,6 +50,7 @@ import urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import notify
+import reputation
 
 # A public DNS-over-HTTPS resolver. We ask it, over HTTPS, "what TXT
 # records does this domain have?" - the same public info any mail server
@@ -136,8 +145,8 @@ def parse_options(args):
     index = 0
     while index < len(args):
         item = args[index]
-        if item == "--notify-config":
-            options["notify-config"] = args[index + 1] if index + 1 < len(args) else ""
+        if item in ("--notify-config", "--vt-key"):
+            options[item.lstrip("-")] = args[index + 1] if index + 1 < len(args) else ""
             index += 2
             continue
         if item.startswith("--"):
@@ -147,6 +156,46 @@ def parse_options(args):
         positional.append(item)
         index += 1
     return options, positional
+
+
+def wrap(text, width=70):
+    """Fold a sentence to a width, so a long verdict is still readable."""
+    words, lines, current = str(text).split(), [], ""
+    for word in words:
+        if len(current) + len(word) + 1 > width:
+            lines.append(current)
+            current = word
+        else:
+            current = (current + " " + word).strip()
+    if current:
+        lines.append(current)
+    return lines
+
+
+def show_reputation(domain, options):
+    """Ask the blocklists and the registry, and print who said what.
+
+    Naming every source and what it said is the point. A verdict somebody
+    cannot check is a verdict they have to take on faith, and this tool is
+    usually being read out loud to the person who owns the domain.
+    """
+    print()
+    print("  What everybody else thinks of this domain")
+    print("  " + "-" * 54)
+
+    crossed = reputation.check(domain, vt_key=options.get("vt-key") or "")
+    for source in crossed.get("sources", []):
+        if source.get("skipped"):
+            continue
+        mark = "!" if source.get("known") else (" " if source.get("ok") else "?")
+        print("  %s [%-13s] %s" % (mark, source.get("source", ""), source.get("why", "")))
+
+    headline, body = crossed["verdict"]
+    print()
+    print("  %s" % headline)
+    for text in wrap(body, 66):
+        print("    " + text)
+    return crossed
 
 
 def tell_them(domain, verdict, lines, options):
@@ -196,7 +245,27 @@ def main():
     line(dmarc_status, "DMARC", dmarc_msg)
     line(dkim_status, "DKIM ", dkim_msg)
 
+    # What everybody else thinks of the domain, if asked. This can change the
+    # whole conversation: a blocklisted domain is not being impersonated, it is
+    # being rejected, and that is the more urgent problem of the two.
+    crossed = None
+    if options.get("reputation") or options.get("vt-key"):
+        crossed = show_reputation(domain, options)
+
     print("\n" + "-" * 58)
+
+    if crossed and crossed["level"] in ("listed", "throwaway"):
+        headline, body = crossed["verdict"]
+        print("Verdict: %s." % headline.upper())
+        for text in wrap(body, 70):
+            print(text)
+        print()
+        print("The SPF and DMARC findings above still stand, but this comes first.")
+        if options.get("notify"):
+            tell_them(domain, headline.lower(),
+                      ["%s: %s" % (headline, body), ""] +
+                      ["SPF:   %s" % spf_msg, "", "DMARC: %s" % dmarc_msg], options)
+        sys.exit(1)
     # Verdict weighted mostly on DMARC, since it's what actually blocks fakes.
     if spf_status == "good" and dmarc_status == "good":
         print("Verdict: well protected. It's genuinely hard to forge mail from this domain.")

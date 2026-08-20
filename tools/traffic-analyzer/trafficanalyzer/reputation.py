@@ -30,9 +30,12 @@ WHO GETS ASKED
   GreyNoise (community)  free, no key at all. Tells you whether an address is a
                          known internet wide scanner and names it. This is the
                          one that stops the false alarms.
-  Spamhaus, DroneBL      free, no key, answered over DNS the same way a mail
-                         server asks. These are blocklists, so a hit means the
-                         address is already known for abuse.
+  Spamhaus, DroneBL,     free, no key, answered over DNS the same way a mail
+  SpamCop                server asks. These are blocklists, so a hit means the
+                         address is already known for abuse. Each is asked its
+                         own test point first: these lists refuse queries from
+                         public resolvers, and a refusal looks exactly like
+                         "not listed" unless you check.
   VirusTotal             needs a free key. How many of about seventy vendors
                          call the address malicious.
   AbuseIPDB              needs a free key. How many people have reported it, and
@@ -67,13 +70,35 @@ DEFAULT_MAX_AGE = 7 * 24 * 3600
 
 DOH_URL = "https://dns.google/resolve"
 
-# The blocklists worth asking, and what a hit from each one means. These are DNS
-# lookups, so they need no key and no account.
+# Answers inside 127.0.0.0/8 that mean "I will not answer you" rather than
+# "this is listed". Per list, not one shared set, because the same number means
+# different things to different lists: 127.0.0.1 is a refusal to some and a
+# perfectly valid listing type to DroneBL.
+SPAMHAUS_REFUSALS = {
+    "127.255.255.252",  # typing error in the query
+    "127.255.255.253",  # query through an open resolver
+    "127.255.255.254",  # query through a public resolver
+    "127.255.255.255",  # volume limit exceeded
+}
+
+# The blocklists worth asking, with the test point each publishes and what a
+# hit means. No key and no account: these are DNS lookups.
+#
+# The test point column exists because of a trap. These lists refuse queries
+# that arrive through a big public resolver, and a refused query looks exactly
+# like "this address is not listed". A tool that believes that answer reports
+# every address as clean, for ever, and sounds confident doing it. So we ask
+# each list its own published test point first: the universal convention is
+# that 127.0.0.2 is always listed on a working list. If that does not come
+# back listed, this machine cannot use the list and the honest answer is
+# "could not check".
 BLOCKLISTS = [
-    ("Spamhaus", "zen.spamhaus.org",
+    ("Spamhaus", "zen.spamhaus.org", "2.0.0.127", SPAMHAUS_REFUSALS,
      "Spamhaus lists it, which usually means spam or a compromised machine"),
-    ("DroneBL", "dnsbl.dronebl.org",
+    ("DroneBL", "dnsbl.dronebl.org", "2.0.0.127", set(),
      "DroneBL lists it, which usually means a compromised machine or a proxy"),
+    ("SpamCop", "bl.spamcop.net", "2.0.0.127", set(),
+     "SpamCop lists it, which means it has been reported for sending spam"),
 ]
 
 
@@ -81,8 +106,8 @@ def _sources_asked(keys):
     """Who would actually be asked, given the keys available. For disclosure."""
     keys = keys or {}
     asked = [("GreyNoise", "free, no key needed")]
-    for name, _zone, _why in BLOCKLISTS:
-        asked.append((name, "free, asked over DNS"))
+    for entry in BLOCKLISTS:
+        asked.append((entry[0], "free, asked over DNS"))
     asked.append(("VirusTotal",
                   "asked" if keys.get("vt") else "skipped, no key"))
     asked.append(("AbuseIPDB",
@@ -154,8 +179,47 @@ def greynoise(ip, key="", timeout=TIMEOUT):
     return result
 
 
-def blocklist(ip, name, zone, meaning, timeout=TIMEOUT):
+def _resolve(name, timeout=TIMEOUT):
+    """Ask this machine's own resolver, not a public one.
+
+    The lists block the public resolvers, and at a client site the machine's
+    own resolver is the path their mail and their firewall actually use, so
+    the answer we get is the answer that matters to them.
+
+    Returns a list of addresses, or None when the name does not exist.
+    """
+    previous = socket.getdefaulttimeout()
+    try:
+        socket.setdefaulttimeout(timeout)
+        return socket.gethostbyname_ex(name)[2]
+    except socket.gaierror:
+        return None                      # no such name: not listed
+    except OSError:
+        return None
+    finally:
+        socket.setdefaulttimeout(previous)
+
+
+# Whether a list answers us at all. Worked out once per run and remembered,
+# because it is the same answer for every address we then ask about.
+_usable_cache = {}
+
+
+def _list_usable(zone, test_point, refusals, timeout=TIMEOUT, resolver=None):
+    resolver = resolver or _resolve
+    if zone in _usable_cache:
+        return _usable_cache[zone]
+    answers = resolver("%s.%s" % (test_point, zone), timeout) or []
+    good = [a for a in answers if a.startswith("127.") and a not in refusals]
+    _usable_cache[zone] = bool(good)
+    return _usable_cache[zone]
+
+
+def blocklist(ip, name, zone, test_point, refusals, meaning, timeout=TIMEOUT,
+              resolver=None):
     """A DNS blocklist, asked the way a mail server asks: reverse the address."""
+    resolver = resolver or _resolve
+
     if ":" in ip:
         return {"source": name, "ok": False, "known": False, "benign": False,
                 "why": "%s only lists IPv4 addresses." % name}
@@ -164,25 +228,31 @@ def blocklist(ip, name, zone, meaning, timeout=TIMEOUT):
         return {"source": name, "ok": False, "known": False, "benign": False,
                 "why": "That is not an address %s can be asked about." % name}
 
-    query = ".".join(reversed(parts)) + "." + zone
-    url = "%s?%s" % (DOH_URL, urllib.parse.urlencode({"name": query, "type": "A"}))
-    request = urllib.request.Request(url, headers={"User-Agent": AGENT})
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            data = json.loads(response.read().decode("utf-8", "replace"))
-    except (urllib.error.URLError, urllib.error.HTTPError, OSError, ValueError) as exc:
+    if not _list_usable(zone, test_point, refusals, timeout, resolver):
         return {"source": name, "ok": False, "known": False, "benign": False,
-                "why": "%s did not answer (%s)." % (name, getattr(exc, "reason", exc))}
+                "unusable": True,
+                "why": ("%s would not answer its own test lookup from this machine. "
+                        "These lists refuse queries that come through a big public "
+                        "resolver, so this says nothing about the address." % name)}
 
-    # NXDOMAIN (status 3) is the normal answer and means "not listed".
-    status = data.get("Status")
-    answers = [a.get("data", "") for a in (data.get("Answer") or [])
-               if a.get("type") == 1]
-    if status == 3 or not answers:
+    answers = resolver(".".join(reversed(parts)) + "." + zone, timeout)
+    if answers is None:
+        return {"source": name, "ok": True, "known": False, "benign": False,
+                "why": "%s does not list it." % name}
+
+    refused = [a for a in answers if a in refusals]
+    hits = [a for a in answers if a.startswith("127.") and a not in refusals]
+
+    if refused and not hits:
+        return {"source": name, "ok": False, "known": False, "benign": False,
+                "unusable": True,
+                "why": ("%s refused the query (%s), which is not the same as saying "
+                        "the address is clean." % (name, ", ".join(refused)))}
+    if not hits:
         return {"source": name, "ok": True, "known": False, "benign": False,
                 "why": "%s does not list it." % name}
     return {"source": name, "ok": True, "known": True, "benign": False,
-            "codes": answers, "why": meaning + "."}
+            "codes": hits, "why": meaning + "."}
 
 
 def virustotal_ip(ip, key="", timeout=TIMEOUT):
@@ -305,9 +375,9 @@ def check(ip, keys=None, timeout=TIMEOUT, lookups=None):
     results = []
     results.append((lookups.get("greynoise") or greynoise)(ip, keys.get("greynoise", ""),
                                                            timeout))
-    for name, zone, meaning in BLOCKLISTS:
+    for name, zone, test_point, refusals, meaning in BLOCKLISTS:
         runner = lookups.get("blocklist") or blocklist
-        results.append(runner(ip, name, zone, meaning, timeout))
+        results.append(runner(ip, name, zone, test_point, refusals, meaning, timeout))
     results.append((lookups.get("virustotal") or virustotal_ip)(ip, keys.get("vt", ""), timeout))
     results.append((lookups.get("abuseipdb") or abuseipdb)(ip, keys.get("abuseipdb", ""), timeout))
 
@@ -324,6 +394,7 @@ def check(ip, keys=None, timeout=TIMEOUT, lookups=None):
 def combine(results):
     """Cross the sources. Agreement is a finding; disagreement is usually the answer."""
     answered = [r for r in results if r.get("ok")]
+    unusable = [r for r in results if r.get("unusable")]
     bad = [r for r in answered if r.get("known")]
     benign = [r for r in answered if r.get("benign")]
     quota = [r for r in results if r.get("quota")]
@@ -353,6 +424,7 @@ def combine(results):
         "bad_sources": [r["source"] for r in bad],
         "benign_sources": [r["source"] for r in benign],
         "quota_hit": bool(quota),
+        "unusable": [r["source"] for r in unusable],
         "skipped": [r["source"] for r in skipped],
         "scanner": scanner,
         "verdict": _verdict(level, bad, benign, answered, results, scanner),

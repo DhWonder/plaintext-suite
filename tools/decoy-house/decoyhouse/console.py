@@ -39,15 +39,61 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlparse
 
+from . import reputation as reputation_module
 from . import store as store_module
 
 
 class Console(object):
-    def __init__(self, db_path, notifier=None):
+    def __init__(self, db_path, notifier=None, reputation_keys=None):
         self.store = store_module.Store(db_path)
         self.db_path = db_path
         self.notifier = notifier
+        # Keys live here and only here. A sensor sits where attackers can reach
+        # it, so it holds no key and makes no lookup; the console does the
+        # asking and the sensors never know it happened.
+        self.reputation_keys = reputation_keys
         self.lock = threading.Lock()
+
+    # ------------------------------------------------------------------
+    def enrich_attackers(self, overview, limit=8):
+        """Say, for each attacker, whether you were swept up or picked out.
+
+        A honeypot session is already proof of somebody doing what they should
+        not. What the databases add is the one thing the session cannot say:
+        whether this address knocks on every door on the internet, or whether
+        it came looking for you. Those two lead completely different places.
+        """
+        if self.reputation_keys is None:
+            return overview
+
+        checker = reputation_module.Checker(keys=self.reputation_keys,
+                                            store=self.store)
+        addresses = [a["peer_ip"] for a in overview.get("top_attackers", [])][:limit]
+        try:
+            found = checker.enrich(addresses)
+        except Exception:
+            return overview
+
+        for attacker in overview.get("top_attackers", []):
+            result = found.get(attacker["peer_ip"])
+            if not result:
+                continue
+            headline, sentence, attention = reputation_module.honeypot_verdict(result)
+            attacker["reputation"] = {
+                "level": result.get("level", "unknown"),
+                "scanner": result.get("scanner", ""),
+                "headline": headline,
+                "sentence": sentence,
+                "attention": attention,
+                "sources": [
+                    {"source": r.get("source", ""), "why": r.get("why", ""),
+                     "known": bool(r.get("known")), "benign": bool(r.get("benign")),
+                     "ok": bool(r.get("ok"))}
+                    for r in result.get("sources", []) if not r.get("skipped")
+                ],
+            }
+        overview["reputation_coverage"] = checker.coverage()
+        return overview
 
     def register(self, payload):
         sensor = payload.get("sensor", "unknown")
@@ -187,7 +233,8 @@ class Handler(BaseHTTPRequestHandler):
             if path in ("/", "/index.html"):
                 return self._serve_ui()
             if path == "/api/overview":
-                return self._json(self.console.store.overview())
+                return self._json(self.console.enrich_attackers(
+                    self.console.store.overview()))
             if path == "/api/sessions":
                 return self._json({"sessions": self.console.store.sessions(limit=200)})
             if path.startswith("/api/session/"):
@@ -277,8 +324,9 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-def serve(db_path, host="127.0.0.1", port=8770, ui_path=None, notifier=None):
-    console = Console(db_path, notifier=notifier)
+def serve(db_path, host="127.0.0.1", port=8770, ui_path=None, notifier=None,
+          reputation_keys=None):
+    console = Console(db_path, notifier=notifier, reputation_keys=reputation_keys)
     handler = type("Bound", (Handler,), {"console": console, "ui_path": ui_path})
     httpd = ThreadingHTTPServer((host, port), handler)
 

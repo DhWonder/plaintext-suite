@@ -53,6 +53,15 @@ CREATE TABLE IF NOT EXISTS trigger_event (
     detail    TEXT
 );
 
+CREATE TABLE IF NOT EXISTS ip_reputation (
+    ip          TEXT PRIMARY KEY,       -- the attacker address asked about
+    checked_at  REAL NOT NULL,
+    level       TEXT DEFAULT '',        -- known-bad, disputed, benign, clean...
+    scanner     TEXT DEFAULT '',        -- the name, when it is a known scanner
+    attention   INTEGER DEFAULT 0,      -- 0 background noise, 2 read this today
+    detail      TEXT DEFAULT ''         -- every source and what it said, as JSON
+);
+
 CREATE INDEX IF NOT EXISTS session_by_time ON session (started DESC);
 CREATE INDEX IF NOT EXISTS session_by_ip   ON session (peer_ip);
 CREATE INDEX IF NOT EXISTS trigger_by_time ON trigger_event (at DESC);
@@ -151,6 +160,37 @@ class Store(object):
         return [dict(r) for r in rows]
 
     # -- the summary the console front page needs ----------------------
+    # ------------------------------------------------------------------
+    # What everybody else knows about an attacker address. Console only:
+    # a sensor is a machine we have decided to treat as untrusted, so it
+    # never holds a key and never makes one of these lookups.
+    # ------------------------------------------------------------------
+    def get_reputation(self, ip, max_age=None):
+        row = self.db.execute(
+            "SELECT checked_at, detail FROM ip_reputation WHERE ip=?", (ip,)).fetchone()
+        if row is None or not row["detail"]:
+            return None
+        if max_age is not None and (time.time() - (row["checked_at"] or 0)) > max_age:
+            return None
+        try:
+            result = json.loads(row["detail"])
+        except ValueError:
+            return None
+        result["from_cache"] = True
+        return result
+
+    def save_reputation(self, ip, result):
+        if not result or not result.get("ok"):
+            return
+        self.db.execute(
+            """INSERT OR REPLACE INTO ip_reputation
+               (ip, checked_at, level, scanner, attention, detail)
+               VALUES (?,?,?,?,?,?)""",
+            (ip, result.get("checked_at") or time.time(),
+             result.get("level", ""), result.get("scanner", "") or "",
+             int(result.get("attention", 0) or 0), json.dumps(result)))
+        self.db.commit()
+
     def overview(self):
         one_day = time.time() - 86400
         counts = {

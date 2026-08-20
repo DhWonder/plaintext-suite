@@ -132,7 +132,8 @@ def parse_options(args):
             options["ports"] = ports
             continue
         if item in ("--console", "--name", "--db", "--log", "--host", "--port",
-                    "--notify-config"):
+                    "--notify-config", "--vt-key", "--abuseipdb-key",
+                    "--greynoise-key"):
             options[item.lstrip("-")] = args[index + 1] if index + 1 < len(args) else ""
             index += 2
             continue
@@ -211,7 +212,33 @@ def run_console(options):
         except Exception:
             pass
 
-    console_module.serve(db_path, host=host, port=port, ui_path=ui, notifier=notifier)
+    # Keys are read here, on the console, and never handed to a sensor. A
+    # sensor is a machine left where attackers can reach it; it holds nothing
+    # of yours worth taking.
+    def pick(option, *names):
+        value = options.get(option)
+        if value is True or not value:
+            for name in names:
+                if os.environ.get(name):
+                    return os.environ[name]
+            return ""
+        return value
+
+    keys = {
+        "vt": pick("vt-key", "VT_API_KEY", "VIRUSTOTAL_API_KEY"),
+        "abuseipdb": pick("abuseipdb-key", "ABUSEIPDB_API_KEY"),
+        "greynoise": pick("greynoise-key", "GREYNOISE_API_KEY"),
+    }
+    # GreyNoise and the blocklists need no key, so --reputation on its own is
+    # enough to answer the question that matters here: swept up, or picked out.
+    reputation_keys = keys if (options.get("reputation") or any(keys.values())) else None
+    if reputation_keys is not None:
+        print("Reputation: attacker addresses will be crossed against the databases,")
+        print("            to say whether you were swept up in a scan or picked out.")
+        print("            Only the address is sent, and only from this console.")
+
+    console_module.serve(db_path, host=host, port=port, ui_path=ui, notifier=notifier,
+                         reputation_keys=reputation_keys)
     return 0
 
 

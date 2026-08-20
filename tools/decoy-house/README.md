@@ -87,6 +87,42 @@ on rather than a thing that gets you arrested.
   can send is a notification email to you, and only if you ask for it — see
   below.
 
+## Swept up, or picked out?
+
+A session in the console needs no interpretation. Nobody legitimate connects to a
+machine that exists only to be connected to, so everything in there is already
+somebody doing what they should not.
+
+So the useful question is not "is this address bad". It is the one the session log
+cannot answer on its own:
+
+```
+python3 decoy_house.py console --reputation
+```
+
+Each attacker address is crossed against the reputation databases, and the answer
+is read for a honeypot rather than for a network:
+
+| What comes back | What it means here |
+|---|---|
+| A known mass scanner, which GreyNoise names | It found your sensor by trying every address on the internet. Block it if it is loud. Not an incident. |
+| A known attacker | A machine with a history, now inside your decoy. Known attackers sweep too, so this is not proof you were targeted. |
+| **Nobody has ever heard of it** | **Read this one first.** Scanners are known to the databases *because* they scan everybody. An address no database has seen, that found a machine which exists only as bait, has not been scanning everybody. |
+
+That last row is the point, and it is why the console colours an unknown address
+louder than a known attacker. It is the opposite of what a reputation lookup
+usually tells you, and here it is the right way round.
+
+GreyNoise and the blocklists need no key, so `--reputation` works on its own.
+`--vt-key` and `--abuseipdb-key` add depth, and can come from `VT_API_KEY` and
+`ABUSEIPDB_API_KEY` instead.
+
+**The console does this, never a sensor.** A sensor is a machine you have
+deliberately left where attackers can reach it, so it holds no key of yours and
+makes no lookup. The console asks, and the sensors never know it happened. Only
+the attacker's address is ever sent: not what they typed, not which bait they
+took, not the name of your sensor or where it sits.
+
 ## Being told, instead of checking
 
 A honeypot you have to remember to look at is a honeypot you will look at three

@@ -95,6 +95,11 @@
  .cred{font-family:'JetBrains Mono',monospace;font-size:.82rem;padding:5px 0;
    border-bottom:1px solid var(--line)}
  .cred b{color:var(--cyan)}
+ .dim{color:var(--muted);font-size:.78rem}
+ .who{font-size:.75rem;font-weight:600;cursor:help;border-bottom:1px dotted transparent}
+ .who.att2{color:var(--red);border-bottom-color:rgba(251,113,133,.5)}
+ .who.att1{color:var(--amber);border-bottom-color:rgba(251,191,36,.5)}
+ .who.att0{color:var(--muted)}
 </style>
 </head>
 <body>
@@ -137,7 +142,8 @@
         <h2>Busiest sources</h2>
         <p class="sub">The addresses that came back most.</p>
         <table>
-          <thead><tr><th>Address</th><th class="num">Visits</th><th class="num">Cmds</th></tr></thead>
+          <thead><tr><th>Address</th><th class="num">Visits</th><th class="num">Cmds</th>
+            <th>Who is it</th></tr></thead>
           <tbody id="attackers"></tbody>
         </table>
         <div class="empty" id="noAttackers" style="display:none">Nothing yet.</div>
@@ -167,6 +173,18 @@
 <script>
 const el = id => document.getElementById(id);
 const fmt = n => (n===null||n===undefined) ? "0" : Number(n).toLocaleString("en-US");
+
+// A honeypot session is already proof of somebody doing what they should not.
+// What the databases add is the one thing the session cannot say: whether this
+// address knocks on every door on the internet, or whether it came looking for
+// you. The colour follows that, not "bad or good", so an address nobody has
+// ever seen reads louder than a known scanner. It is the one to open first.
+function whoIsIt(rep){
+  if (!rep) return "<span class='dim'>not checked</span>";
+  const cls = rep.attention >= 2 ? "att2" : (rep.attention === 1 ? "att1" : "att0");
+  return "<span class='who "+cls+"' title='"+esc(rep.sentence)+"'>"
+       + esc(rep.headline) + "</span>";
+}
 const esc = s => String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;")
   .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 const when = t => t ? new Date(t*1000).toLocaleString("en-GB",{hour12:false,
@@ -216,7 +234,8 @@ async function load(){
   el("noAttackers").style.display = attackers.length ? "none" : "";
   el("attackers").innerHTML = attackers.map(a =>
     "<tr data-ip='"+esc(a.peer_ip)+"'><td class='ip'>"+esc(a.peer_ip)+"</td>"
-    +"<td class='num'>"+fmt(a.sessions)+"</td><td class='num'>"+fmt(a.commands)+"</td></tr>").join("");
+    +"<td class='num'>"+fmt(a.sessions)+"</td><td class='num'>"+fmt(a.commands)+"</td>"
+    +"<td>"+whoIsIt(a.reputation)+"</td></tr>").join("");
 
   const sensors = data.sensors || [];
   el("noSensors").style.display = sensors.length ? "none" : "";

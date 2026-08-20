@@ -473,6 +473,10 @@
     <div class="tab" data-view="sources">Sources<small>every address, searchable</small></div>
     <div class="tab" data-view="map">World map<small>zoom and drag</small></div>
     <div class="tab" data-view="soc">Console<small>the operations wall</small></div>
+    <!-- The packet browser is its own page, because it is a different job:
+         these four views summarise, that one shows you the packet. It needs
+         the local server, so the link only appears when there is one. -->
+    <a class="tab" id="packetsTab" href="/packets" style="display:none">Packets<small>every packet, filtered</small></a>
   </div>
 
   <div class="status calm" id="status">
@@ -546,8 +550,13 @@
 
     <!-- ============ SOURCES ============ -->
     <div class="view" id="v-sources">
-      <h2>Every address in the capture</h2>
-      <p class="sub">Search, sort, filter, then click a row. Scroll to the bottom to load more.</p>
+      <h2>Every address that sent something</h2>
+      <p class="sub">Search, sort, filter, then click a row. Scroll to the bottom to load more.
+        This lists addresses that <em>sent</em> traffic, because that is what an attacker does. A
+        machine on your network that only received is counted in the totals but has no row here,
+        so a quiet device can be present in the capture and absent from this list. On a switched
+        network a card also only sees its own traffic unless there is a mirror port, so other
+        machines may not appear at all.</p>
       <div class="filters">
         <input class="search" id="q" placeholder="search address, region, network..." spellcheck="false">
         <span class="chip on" data-level="all">All</span>
@@ -580,7 +589,10 @@
       <h2>Where the traffic came from</h2>
       <p class="sub">Scroll to zoom, drag to pan, click a dot to open that address. Positions come
         from which registry the address block was handed out in, so this is roughly right at the
-        continent level and not precise city geolocation. It says so because that matters.</p>
+        continent level and not precise city geolocation. It says so because that matters. Where a
+        dot sits inside a region is arbitrary, not a location. Addresses on your own network are
+        not shown here at all, because a private address is on somebody's network rather than in a
+        country, and they are counted underneath instead.</p>
       <div class="mapwrap" id="mapWrap">
         <canvas id="map"></canvas>
         <div class="mapctl">
@@ -598,6 +610,7 @@
         <span><i style="background:#34D399"></i>normal</span>
         <span style="margin-left:auto" id="mapCount"></span>
       </div>
+      <p class="sub" id="mapLocal" style="margin-top:8px"></p>
     </div>
 
     <!-- ============ CONSOLE ============ -->

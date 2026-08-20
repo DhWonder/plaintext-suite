@@ -21,7 +21,7 @@ import threading
 import time
 from collections import Counter, deque
 
-from . import analyse, capture
+from . import analyse, capture, packets
 
 FLUSH_SECONDS = 3.0          # how often state reaches the database
 WINDOW_SECONDS = 60          # how far back "right now" looks
@@ -33,6 +33,7 @@ class LiveMonitor(object):
 
     def __init__(self, interface="any", store=None, log_path=None,
                  label=None, note="", include_loopback=False, find_public=True,
+                 keep_packets=False,
                  notifier=None):
         self.interface = interface or "any"
         self.store = store
@@ -46,6 +47,10 @@ class LiveMonitor(object):
         # downloads apart from somebody sending traffic at you, and it ends up
         # calling your own laptop an attacker.
         self.local_ips = capture.local_addresses()
+        # The packet browser's data for a live capture. Off unless asked,
+        # because keeping every packet is the one thing that makes this use
+        # memory in proportion to how long it runs.
+        self.packet_log = packets.PacketLog(live=True) if keep_packets else None
         self.public_ip = capture.public_address() if find_public else ""
 
         self.analyzer = analyse.Analyzer(
@@ -136,6 +141,15 @@ class LiveMonitor(object):
                             if self.analyzer.total_packets > before:
                                 self._roll(timestamp, packet)
                                 self.packets_seen += 1
+                                # Keep the packet itself too, if somebody asked
+                                # to be able to look at them. A live capture has
+                                # no file to read back from, so the bytes are
+                                # kept here or they are gone.
+                                if self.packet_log is not None:
+                                    self.packet_log.add(
+                                        packet, caplen=length,
+                                        link=capture.LINK_ETHERNET,
+                                        raw=bytes(view[:min(length, packets.LIVE_SNAP)]))
                     else:
                         self.frames_skipped += 1
 

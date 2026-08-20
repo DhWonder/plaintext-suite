@@ -80,8 +80,24 @@ class State(object):
         self.notifier = notifier
         # The packet browser's data. Only present when the tool was started with
         # a capture to browse, because keeping every packet is opt-in.
-        self.packet_log = packet_log
+        self._packet_log = packet_log
         self.lock = threading.Lock()
+
+    @property
+    def packet_log(self):
+        """Whichever packets are there to look at right now.
+
+        A browsed capture if one was loaded, otherwise the running live
+        capture's own log. Without this the packet browser worked for a file
+        and came back empty during a live capture, which is the moment
+        somebody most wants to look at an actual packet.
+        """
+        if self._packet_log is not None:
+            return self._packet_log
+        monitor = self.monitor
+        if monitor is not None and getattr(monitor, "packet_log", None) is not None:
+            return monitor.packet_log
+        return None
 
     # -- the packet browser ---------------------------------------------
     def packet_page(self, filter_text="", offset=0, limit=200):
@@ -218,7 +234,8 @@ class State(object):
                 return {"ok": False, "error": "A live capture is already running."}
             monitor = live.LiveMonitor(interface, store=self.store,
                                        log_path=log_path, note=note,
-                                       notifier=self.notifier)
+                                       notifier=self.notifier,
+                                       keep_packets=True)
             monitor.start_background()
             self.monitor = monitor
 

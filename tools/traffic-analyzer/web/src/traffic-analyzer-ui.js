@@ -1192,10 +1192,17 @@ const REGION_BOX = {
  "APNIC (Asia Pacific)":       [-38, 45,  70,  150],
  "AFRINIC (Africa)":           [-32, 32, -16,   45],
  "LACNIC (Latin America)":     [-40, 18, -78,  -38],
- "private or local":           [20, 50,  -10,  30],
- "documentation range":        [20, 50,  -10,  30],
  "unknown":                    [0, 30,   -20,  20]
 };
+
+// Regions that are not places. A 10.x address, your own machine, and the
+// documentation ranges exist on somebody's network, not in a country, so they
+// are kept off the world map entirely and counted separately underneath it.
+//
+// They used to be given a box over the Mediterranean, which put every private
+// address and the host's own address in the middle of the map. It looked like
+// a finding and it was an artefact.
+const NOT_A_PLACE = new Set(["private or local", "documentation range"]);
 
 const view = {scale: 1, x: 0, y: 0, dragging: false, lastX: 0, lastY: 0, moved: false};
 let mapPoints = null;
@@ -1247,6 +1254,10 @@ async function ensurePoints(){
     rows = (await ask({cmd:"mapPoints"})).points || [];
   }
   rows.sort((a,b) => b.packets - a.packets);
+  // Anything without a geography is set aside rather than invented a location for.
+  const local = rows.filter(r => NOT_A_PLACE.has(r.region));
+  rows = rows.filter(r => !NOT_A_PLACE.has(r.region));
+
   const drawn = rows.slice(0, MAX_DRAWN);
   mapPoints = drawn.map(r => {
     const [lat, lon] = latLonFor(r.ip, r.region);
@@ -1256,6 +1267,19 @@ async function ensurePoints(){
   el("mapCount").textContent = rows.length > drawn.length
     ? fmt(drawn.length) + " of " + fmt(rows.length) + " addresses drawn, busiest first"
     : fmt(drawn.length) + " addresses";
+
+  // Say where the rest went. A number that quietly vanished is worse than one
+  // in the wrong place, and these are usually the machines on your own network,
+  // which is often what somebody is actually looking for.
+  const localNote = el("mapLocal");
+  if(localNote){
+    localNote.textContent = local.length
+      ? (local.length === 1
+          ? "1 address is on your own network, so it is not on the map."
+          : fmt(local.length) + " addresses are on your own network, so they are"
+            + " not on the map.")
+      : "";
+  }
   return mapPoints;
 }
 
@@ -1539,6 +1563,11 @@ async function detectServer(){
     state.serverUp = true;
     el("sessions").style.display = "";
     el("liveBtn").style.display = "";
+    // The packet browser needs the local server to read packets back, so the
+    // link only appears once we know there is one. Opened from a file:// page
+    // it would be a link to nowhere.
+    const packetsTab = el("packetsTab");
+    if(packetsTab) packetsTab.style.display = "";
     await loadSessionList();
   } catch(err){
     state.serverUp = false;

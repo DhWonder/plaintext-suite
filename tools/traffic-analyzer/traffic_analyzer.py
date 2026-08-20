@@ -683,7 +683,8 @@ def command_watch(options):
         monitor = live_module.LiveMonitor(interface,
                                           store=store_module.Store(db_path),
                                           log_path=options.get("log"),
-                                          notifier=notifier)
+                                          notifier=notifier,
+                                          keep_packets=True)
         monitor.start_background()
         time.sleep(0.5)
         if monitor.error:

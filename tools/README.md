@@ -1,12 +1,13 @@
 # The tools
 
-Six small programs I wrote and use. They are free, they are readable, and the
+Seven small programs I wrote and use. They are free, they are readable, and the
 notes inside the code are in plain English too, which is the best proof I can
 offer that the promise runs all the way down.
 
-Everything here is Python 3 or shell with nothing to install, on purpose: the
-machines that need this most are often the ones you are not allowed to install
-things on.
+Everything here is Python 3, shell, or ANSI C with nothing to install, on
+purpose: the machines that need this most are often the ones you are not
+allowed to install things on. The two C tools need a compiler and nothing
+else, which every Linux machine either has or can get in one command.
 
 | Tool | Answers |
 |---|---|
@@ -15,7 +16,8 @@ things on.
 | **domain-checker** | Could somebody send email pretending to be this business? Checks SPF, DKIM and DMARC. |
 | **decoy-house** | Who is poking around inside the network? Puts up a machine worth breaking into, then records everything they do to it and what bait they take. |
 | **backup-checker** | Did the backup run, and would a restore actually work? Includes a drill that pulls a real file back. |
-| **system-checker** | A read only look over a Linux machine: updates, accounts, what is listening. Written in C, with a shell wrapper that emails you the report when it finds something. |
+| **system-checker** | What is this machine - make, processor, memory, graphics, disks, real or virtual - and is anything wrong with it? Written in C for Linux and PowerShell for Windows, with a wrapper that emails you when it finds something. |
+| **exposure-checker** | What can reach this machine from the network, and which program is behind each open door? Reads `/proc` rather than scanning, so it also knows what runs behind each port and which of them can be used to attack somebody else. C, Linux. |
 
 The two tools that became `email-checker` now live in
 [`../tools-archive`](../tools-archive): `accounts-checker` for passwords, breaches

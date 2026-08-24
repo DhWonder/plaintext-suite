@@ -17,6 +17,12 @@ disk encryption and how long since it was patched.
 It only ever **reads**. It changes nothing, installs nothing, starts nothing, and
 sends nothing anywhere.
 
+The open ports part of that second job is deliberately shallow - it lists port
+numbers, so you know to ask. When the answer to "what is on port 6379" matters,
+[exposure-checker](../exposure-checker) names the program behind each one, says
+whether anything outside can actually reach it, and tells a loopback service
+apart from a genuinely open one.
+
 ---
 
 ## Two machines, two collectors

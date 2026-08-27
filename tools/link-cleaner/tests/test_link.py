@@ -269,9 +269,40 @@ def main():
     rc = subprocess.call(["sh", "-n", watcher])
     failures += check("plain-link-watch.sh parses as a shell script", rc == 0)
 
+    skip_reason = "no clipboard on this machine"
+
+    # Having DISPLAY set and xclip installed is not the same as having a
+    # working clipboard - the display can point at a server that is not
+    # there, which is what a stale DISPLAY left in a shell profile looks
+    # like. Exit codes do not separate the cases cleanly enough to trust
+    # (xclip returns 1 both for "no display" and for an empty clipboard),
+    # so the probe is the only thing that settles it: write a sentinel,
+    # read it back, see if it survived. Skipping loudly beats four
+    # failures that blame the tool for the environment.
+    if have_clip:
+        probe_file = os.path.join(HERE, ".probe")
+        probe_sh = os.path.join(HERE, ".probe.sh")
+        handle = open(probe_sh, "w")
+        handle.write("#!/bin/sh\n"
+                     'printf clipboard-alive | xclip -selection clipboard -in '
+                     ">/dev/null 2>&1\n"
+                     'xclip -selection clipboard -o </dev/null >"$1" 2>/dev/null\n')
+        handle.close()
+        subprocess.call(["sh", probe_sh, probe_file],
+                        stdin=open(os.devnull),
+                        stdout=open(os.devnull, "wb"),
+                        stderr=subprocess.STDOUT)
+        alive = (os.path.exists(probe_file) and
+                 open(probe_file, "rb").read() == b"clipboard-alive")
+        for leftover in (probe_file, probe_sh):
+            if os.path.exists(leftover):
+                os.remove(leftover)
+        if not alive:
+            skip_reason = "a clipboard was expected here but nothing answered"
+            have_clip = False
+
     if not have_clip:
-        print("  %-72s %s" % ("no clipboard on this machine - round trip not run",
-                              "skipped"))
+        print("  %-72s %s" % (skip_reason + " - round trip not run", "skipped"))
     else:
         # Every clipboard command writes to a file, never to a pipe. On X,
         # a selection is served by the process that set it, so xclip stays

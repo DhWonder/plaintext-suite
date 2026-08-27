@@ -19,9 +19,10 @@ limitations written down.
 | [domain-checker](tools/domain-checker) | Python | Can a criminal send email pretending to be this business? (SPF/DMARC) |
 | [backup-checker](tools/backup-checker) | shell | Verifies backups actually ran, and that they can actually restore. |
 | [system-checker](tools/system-checker) | C + PowerShell | What is this machine (make, OS, processor, memory, graphics, disks, network, real or virtual) and is anything wrong with it. C for Linux, PowerShell for Windows, same report from both. |
+| [link-cleaner](tools/link-cleaner) | C + shell | Takes the tracking off a link before you send it. Campaign tags, click identifiers, affiliate tags, share tokens and highlighted-sentence fragments, plus the redirectors that wrap a link only to record the click. Watches the clipboard if you want it to. |
 | [exposure-checker](tools/exposure-checker) | C | What can reach this machine, and what is behind each door. Names the program holding every open port, tells a loopback service apart from a genuinely open one, and says whether "every network" includes the internet. Reads `/proc`; scans nothing. |
 
-All seven can email you when they find something, which is the difference between
+Seven of the eight can email you when they find something, which is the difference between
 a tool that answers a question and one that watches for you. It is off
 until you set it up and ask for it, it goes through your own mail server, and
 [`tools/notifications`](tools/notifications) says exactly what ends up in the

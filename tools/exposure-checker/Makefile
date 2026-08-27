@@ -17,6 +17,7 @@ check: plain-expose
 	@./plain-expose --list  >/dev/null
 	@./plain-expose --help  >/dev/null
 	@sh -n plain-expose-notify.sh
+	@sh ../same-helpers.sh
 	@python3 tests/test_expose.py
 
 clean:

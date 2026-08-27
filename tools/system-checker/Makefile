@@ -16,6 +16,7 @@ check: plain-check
 	@./plain-check --check >/dev/null; s=$$?; [ $$s -le 2 ] || { echo "--check exited $$s"; exit 1; }
 	@./plain-check --help  >/dev/null
 	@sh -n system-check.sh
+	@sh ../same-helpers.sh
 	@echo "plain-check builds, runs, and system-check.sh parses."
 
 clean:

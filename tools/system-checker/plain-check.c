@@ -83,6 +83,33 @@ static void fact(const char *label, const char *value)
  * "could not tell", because a made up number is worse than a gap.
  * ================================================================ */
 
+/* ================================================================
+ * SHARED HELPERS - keep identical across the C tools
+ *
+ * The few lines between this marker and its closing one are duplicated,
+ * on purpose, in every C tool in this suite. There is no shared header,
+ * and that is a decision rather than an oversight:
+ *
+ *   ANSI C has no `inline`. A header full of `static` helpers means every
+ *   tool that does not use all of them builds with warnings, and these
+ *   build warning-clean under -Wall -Wextra, which is worth more than
+ *   thirty saved lines.
+ *
+ *   A real .c and .h pair would work, but it costs the promise each
+ *   README makes: one file, one command, no dependencies. Being able to
+ *   drop a single .c on a machine you have never seen and compile it is
+ *   most of why these are written in C at all.
+ *
+ * The price is that a fix applied here has to be applied in the other
+ * tools too. `tools/same-helpers.sh`, which `make check` runs, fails the
+ * build the day the copies stop matching - so the duplication cannot
+ * quietly rot into two versions that disagree.
+ *
+ * If one tool genuinely needs a different version of one of these, that
+ * is the signal to move it out of this block in both files and give each
+ * its own name, not to let the block drift.
+ * ================================================================ */
+
 /* Strip whitespace and newlines from both ends, in place. */
 static void trim(char *s)
 {
@@ -116,6 +143,12 @@ static int read_line(const char *path, char *out, size_t max)
     trim(out);
     return out[0] != '\0';
 }
+
+/* ================================================================
+ * END OF SHARED HELPERS
+ * ================================================================ */
+
+/* Read the first line of a file. Returns 1 on success. */
 
 /* Find "key" in a "key: value" or "key=value" file and return its value.
  * Used for /proc/cpuinfo, /proc/meminfo and /etc/os-release, which are

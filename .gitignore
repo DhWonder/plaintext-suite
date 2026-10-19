@@ -39,3 +39,4 @@ tools/traffic-analyzer/tests/captures/
 
 # Test fixtures, rebuilt by tests/make_test_emails.py
 fixtures/
+tools/decoy-house/

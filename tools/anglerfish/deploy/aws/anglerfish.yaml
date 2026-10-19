@@ -1,0 +1,824 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  anglerfish honeypot on a single free-tier EC2 instance.
+  Exposes only the honeypot facade ports to the world (so Shodan can find it).
+  Admin SSH is on a non-standard port restricted to your IP. The console binds
+  to localhost. Cost guardrails: AWS Budgets ($1), CloudWatch billing alarm,
+  NetworkOut alarm that STOPS the instance if egress looks abusive, no NAT
+  Gateway, no Elastic IP, 8 GB gp3 root volume, t3.micro/t2.micro only.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: "Required"}
+        Parameters: [AlertEmail, AdminCidr, KeyName, PackageS3Bucket, PackageS3Key]
+      - Label: {default: "Optional"}
+        Parameters: [InstanceType, AdminSshPort, ConsoleToken, MonthlyBudgetUSD, NetworkOutAlarmBytes]
+
+Parameters:
+  AlertEmail:
+    Type: String
+    Description: Email for budget + billing + NetworkOut alarms (confirm the SNS subscription!).
+    AllowedPattern: ".+@.+\\..+"
+  AdminCidr:
+    Type: String
+    Description: Your public IP as CIDR for admin SSH (e.g. 203.0.113.10/32). Never 0.0.0.0/0.
+    # BLUE-REWORK: only /24../32 accepted (was /0../99, which let 0.0.0.0/0 through).
+    AllowedPattern: "^(\\d{1,3}\\.){3}\\d{1,3}/(2[4-9]|3[0-2])$"
+    ConstraintDescription: Must be an IPv4 CIDR between /24 and /32. Use /32 for a single IP.
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Existing EC2 key pair for admin SSH on the non-standard port.
+  PackageS3Bucket:
+    Type: String
+    Description: S3 bucket that holds anglerfish-upgraded.tgz (same account/region).
+  PackageS3Key:
+    Type: String
+    Default: anglerfish-upgraded.tgz
+    Description: S3 object key for the honeypot tarball.
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues: [t3.micro, t2.micro]
+    Description: Free-tier eligible only. Do not change to a larger type.
+  AdminSshPort:
+    Type: Number
+    Default: 22222
+    MinValue: 1025
+    MaxValue: 65000
+    Description: Real sshd port (NOT 22 ? 22 is the honeypot). Restricted to AdminCidr.
+  ConsoleToken:
+    Type: String
+    Default: auto
+    NoEcho: true
+    Description: Shared sensor/console token. "auto" mints one on first boot.
+  MonthlyBudgetUSD:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 20
+    Description: AWS Budgets monthly limit (USD). Alerts at 50/80/100% actual + forecasted.
+  NetworkOutAlarmBytes:
+    Type: Number
+    Default: 20000000000
+    Description: >
+      Stop the instance if NetworkOut exceeds this many bytes in 24h
+      (default 20 GB ? well under the 100 GB/mo free-tier data-transfer allowance).
+  AmiId:
+    Type: AWS::EC2::Image::Id
+    Description: >
+      Pin an AMI id. Do NOT use a moving SSM alias here — a changing ImageId
+      makes CloudFormation want to replace the instance (and lose the public IP).
+  # --- BLUE-REWORK parameters -------------------------------------------
+  LogRetentionDays:
+    Type: Number
+    Default: 30
+    AllowedValues: [7, 14, 30, 60, 90]
+    Description: CloudWatch Logs retention for /<stack>/sessions (keeps storage at pennies).
+  EnableLogAlarms:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: Create the 2 detection alarms (critical + high-signal) on the existing SNS topic.
+  SandboxPort:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    MaxValue: 65000
+    Description: >
+      Optional extra world-open honeypot/sandbox listener port (0 = none). Must not equal AdminSshPort.
+      The backend behind it must run as its own unprivileged user covered by scripts/host-egress-guard.sh.
+
+Conditions:
+  UseT3: !Equals [!Ref InstanceType, t3.micro]
+  # BLUE-REWORK
+  DoLogAlarms: !Equals [!Ref EnableLogAlarms, "true"]
+  HasSandboxPort: !Not [!Equals [!Ref SandboxPort, 0]]
+
+# BLUE-REWORK: refuse a stack update that would open the real sshd to the world or
+# collide a sandbox listener with it.
+Rules:
+  AdminCidrNeverWorld:
+    Assertions:
+      - Assert: !Not [!Equals [!Ref AdminCidr, "0.0.0.0/0"]]
+        AssertDescription: AdminCidr must never be 0.0.0.0/0 (real sshd).
+  SandboxNotAdminPort:
+    Assertions:
+      - Assert: !Not [!Equals [!Ref SandboxPort, !Ref AdminSshPort]]
+        AssertDescription: SandboxPort must not be the real admin sshd port.
+
+Resources:
+
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "${AWS::StackName}-alerts"
+      DisplayName: anglerfish cost alerts
+      KmsMasterKeyId: alias/aws/sns
+      Subscription:
+        - Endpoint: !Ref AlertEmail
+          Protocol: email
+
+  MonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: !Sub "${AWS::StackName}-monthly"
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref MonthlyBudgetUSD
+          Unit: USD
+        CostTypes:
+          IncludeCredit: false
+          IncludeDiscount: true
+          IncludeOtherSubscription: true
+          IncludeRecurring: true
+          IncludeRefund: false
+          IncludeSubscription: true
+          IncludeSupport: true
+          IncludeTax: true
+          IncludeUpfront: true
+          UseBlended: false
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 50
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref AlertEmail
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref AlertEmail
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref AlertEmail
+        - Notification:
+            NotificationType: FORECASTED
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref AlertEmail
+
+  # Billing alarm must live in us-east-1; if you deploy elsewhere this is best-effort.
+  EstimatedChargesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${AWS::StackName}-estimated-charges"
+      AlarmDescription: EstimatedCharges > $1 (USD). Confirm SNS email subscription.
+      Namespace: AWS/Billing
+      MetricName: EstimatedCharges
+      Dimensions:
+        - Name: Currency
+          Value: USD
+      Statistic: Maximum
+      Period: 21600
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions: [!Ref AlarmTopic]
+      TreatMissingData: notBreaching
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AWS::StackName}-instance"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ec2.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        # Session Manager ? admin shell from anywhere with your AWS creds, no IP allowlist needed.
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: read-honeypot-package
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [s3:GetObject]
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${PackageS3Bucket}/${PackageS3Key}"
+              - Effect: Allow
+                Action: [s3:ListBucket]
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${PackageS3Bucket}"
+                Condition:
+                  StringLike:
+                    s3:prefix: [!Ref PackageS3Key]
+        - PolicyName: cloudwatch-put-metrics
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [cloudwatch:PutMetricData]
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    cloudwatch:namespace: anglerfish
+        # BLUE-REWORK: off-host log shipping, scoped to this stack's one log group.
+        - PolicyName: ship-logs-cloudwatch
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents, logs:DescribeLogStreams]
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/${AWS::StackName}/sessions"
+                  - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/${AWS::StackName}/sessions:log-stream:*"
+              - Effect: Allow
+                Action: [logs:CreateLogGroup]
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/${AWS::StackName}/sessions"
+              - Effect: Allow
+                Action: [ssm:GetParameter]
+                Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}/cwagent-config"
+        # BLUE-REWORK: AmazonSSMManagedInstanceCore grants ssm:GetParameter(s) on "*", so a popped
+        # honeypot could read every SSM parameter in the account (today: /other-project/* SecureStrings,
+        # decryptable via the aws/ssm key). Deny everything outside this stack's own prefix.
+        - PolicyName: deny-foreign-ssm-parameters
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Deny
+                Action: [ssm:GetParameter, ssm:GetParameters, ssm:GetParametersByPath, ssm:GetParameterHistory]
+                NotResource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}/*"
+              - Effect: Deny
+                Action: [ssm:DescribeParameters, ssm:PutParameter, ssm:DeleteParameter, ssm:DeleteParameters]
+                Resource: "*"
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref InstanceRole]
+
+  HoneypotSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: anglerfish - world honeypot ports + admin SSH from AdminCidr only
+      SecurityGroupIngress:
+        # Honeypot facades ? intentional world-open so Shodan/attackers find them.
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: honeypot SSH facade (NOT real sshd)
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: honeypot HTTP (nginx/NAS login)
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: honeypot HTTPS
+        - IpProtocol: tcp
+          FromPort: 21
+          ToPort: 21
+          CidrIp: 0.0.0.0/0
+          Description: honeypot FTP
+        - IpProtocol: tcp
+          FromPort: 23
+          ToPort: 23
+          CidrIp: 0.0.0.0/0
+          Description: honeypot telnet
+        - IpProtocol: tcp
+          FromPort: 25
+          ToPort: 25
+          CidrIp: 0.0.0.0/0
+          Description: honeypot SMTP (closed relay)
+        # Real admin SSH ? your IP only, non-standard port.
+        - IpProtocol: tcp
+          FromPort: !Ref AdminSshPort
+          ToPort: !Ref AdminSshPort
+          CidrIp: !Ref AdminCidr
+          Description: real sshd (admin only)
+      # Default egress (allow all outbound) ? needed for yum/S3. No NAT Gateway.
+      # BLUE-REWORK: egress is deliberately NOT changed here. Declaring SecurityGroupEgress needs
+      # VpcId, and adding VpcId REPLACES this SG, which (via NetworkInterfaces.GroupSet) REPLACES the
+      # instance and loses public IP 203.0.113.10. Tighten egress in place with
+      # scripts/restrict-egress.sh instead (see aws-scope-review.md, finding F4).
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-sg"
+
+  # BLUE-REWORK: optional extra world-open listener for a sandboxed realism backend.
+  # Separate resource so it can be added/removed without touching the admin rule.
+  SandboxIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: HasSandboxPort
+    Properties:
+      GroupId: !GetAtt HoneypotSecurityGroup.GroupId
+      IpProtocol: tcp
+      FromPort: !Ref SandboxPort
+      ToPort: !Ref SandboxPort
+      CidrIp: 0.0.0.0/0
+      Description: honeypot sandbox backend (contained; see aws-scope-review.md)
+
+  HoneypotInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      ImageId: !Ref AmiId
+      IamInstanceProfile: !Ref InstanceProfile
+      # Default VPC + auto public IP. NO Elastic IP resource (unattached EIPs cost money).
+      # Security groups must be set on the network interface when one is declared.
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          GroupSet: [!GetAtt HoneypotSecurityGroup.GroupId]
+          DeleteOnTermination: true
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 8
+            VolumeType: gp3
+            Encrypted: true
+            DeleteOnTermination: true
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # anglerfish EC2 bootstrap (Amazon Linux 2023 / Ubuntu)
+          # Runs as root from cloud-init. Installs the honeypot, mints a persona,
+          # redirects well-known ports to high ports, and starts an unprivileged
+          # systemd service. Never exposes the console to the network.
+          set -euo pipefail
+          exec > /var/log/anglerfish-bootstrap.log 2>&1
+          echo "=== anglerfish bootstrap $(date -u) ==="
+
+          PACKAGE_S3_URI="s3://${PackageS3Bucket}/${PackageS3Key}"
+          CONSOLE_TOKEN_PARAM="${ConsoleToken}"
+          ADMIN_PORT="${AdminSshPort}"
+
+          # --- packages -----------------------------------------------------------
+          if command -v dnf >/dev/null 2>&1; then
+            dnf -y update --security || true
+            dnf -y install python3 python3-pip iptables iptables-nft openssl tar gzip shadow-utils
+            IPTABLES=iptables
+          elif command -v apt-get >/dev/null 2>&1; then
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update -qq
+            apt-get install -y -qq python3 python3-pip iptables openssl tar gzip
+            IPTABLES=iptables
+          else
+            echo "unsupported distro"; exit 1
+          fi
+
+          # --- decoy user (never run the sensor as root) --------------------------
+          id decoy >/dev/null 2>&1 || useradd --system --create-home --home-dir /opt/anglerfish --shell /sbin/nologin decoy
+          mkdir -p /opt/anglerfish /opt/anglerfish/state /opt/anglerfish/log
+          chown -R anglerfish:anglerfish /opt/anglerfish
+
+          # --- fetch package ------------------------------------------------------
+          cd /tmp
+          if [[ -n "${!PACKAGE_S3_URI}" ]]; then
+            if command -v aws >/dev/null 2>&1; then
+              aws s3 cp "${!PACKAGE_S3_URI}" /tmp/anglerfish.tgz
+            else
+              # IMDSv2 + awscli via pip as fallback
+              pip3 install --quiet awscli || true
+              aws s3 cp "${!PACKAGE_S3_URI}" /tmp/anglerfish.tgz
+            fi
+          else
+            echo "PackageS3Uri empty - expecting /tmp/anglerfish.tgz already present"
+          fi
+          tar xzf /tmp/anglerfish.tgz -C /opt/anglerfish
+          # tarball extracts to anglerfish-upgraded/
+          APP=/opt/anglerfish/app
+          if [[ ! -d "${!APP}" ]]; then
+            # tolerate a tarball whose top-level dir name differs
+            APP=$(find /opt/anglerfish -maxdepth 1 -type d -name 'anglerfish*' | head -1)
+          fi
+          chown -R anglerfish:anglerfish /opt/anglerfish
+
+          # --- mint persona (as decoy user) ---------------------------------------
+          sudo -u anglerfish mkdir -p /opt/anglerfish/state
+          # First run generates host keys + TLS cert + console token.
+          sudo -u anglerfish python3 - <<PY
+          import sys
+          sys.path.insert(0, "${!APP}")
+          from decoyhouse import persona
+          p = persona.load_or_create("/opt/anglerfish/state", note=print)
+          print("persona:", p["fqdn"], p["company"])
+          print("console_token:", p["console_token"])
+          open("/opt/anglerfish/state/console.token","w").write(p["console_token"])
+          PY
+          TOKEN=$(cat /opt/anglerfish/state/console.token)
+          # Allow operator override from CFN parameter (keeps sensor+console matched)
+          if [[ -n "${!CONSOLE_TOKEN_PARAM}" && "${!CONSOLE_TOKEN_PARAM}" != "auto" ]]; then
+            TOKEN="${!CONSOLE_TOKEN_PARAM}"
+            python3 - <<PY
+          import json
+          p=json.load(open("/opt/anglerfish/state/persona.json"))
+          p["console_token"]="${!TOKEN}"
+          json.dump(p, open("/opt/anglerfish/state/persona.json","w"), indent=2)
+          open("/opt/anglerfish/state/console.token","w").write("${!TOKEN}")
+          PY
+          fi
+          chmod 600 /opt/anglerfish/state/console.token /opt/anglerfish/state/persona.json
+          chown -R anglerfish:anglerfish /opt/anglerfish/state
+
+          # --- iptables: well-known -> high ports (sensor stays unprivileged) ----
+          # Flush any prior decoy redirects then install ours.
+          ${!IPTABLES} -t nat -D PREROUTING -p tcp --dport 22  -j REDIRECT --to-ports 2222 2>/dev/null || true
+          ${!IPTABLES} -t nat -D PREROUTING -p tcp --dport 80  -j REDIRECT --to-ports 8080 2>/dev/null || true
+          ${!IPTABLES} -t nat -D PREROUTING -p tcp --dport 443 -j REDIRECT --to-ports 8443 2>/dev/null || true
+          ${!IPTABLES} -t nat -D PREROUTING -p tcp --dport 25  -j REDIRECT --to-ports 2525 2>/dev/null || true
+          ${!IPTABLES} -t nat -D PREROUTING -p tcp --dport 21  -j REDIRECT --to-ports 2121 2>/dev/null || true
+          ${!IPTABLES} -t nat -D PREROUTING -p tcp --dport 23  -j REDIRECT --to-ports 2323 2>/dev/null || true
+          ${!IPTABLES} -t nat -A PREROUTING -p tcp --dport 22  -j REDIRECT --to-ports 2222
+          ${!IPTABLES} -t nat -A PREROUTING -p tcp --dport 80  -j REDIRECT --to-ports 8080
+          ${!IPTABLES} -t nat -A PREROUTING -p tcp --dport 443 -j REDIRECT --to-ports 8443
+          ${!IPTABLES} -t nat -A PREROUTING -p tcp --dport 25  -j REDIRECT --to-ports 2525
+          ${!IPTABLES} -t nat -A PREROUTING -p tcp --dport 21  -j REDIRECT --to-ports 2121
+          ${!IPTABLES} -t nat -A PREROUTING -p tcp --dport 23  -j REDIRECT --to-ports 2323
+          # Persist rules across reboot when possible
+          if command -v iptables-save >/dev/null; then
+            mkdir -p /etc/sysconfig
+            iptables-save > /etc/sysconfig/iptables || true
+          fi
+
+          # Move real sshd off 22 if it is holding it, onto the admin port.
+          if [[ -f /etc/ssh/sshd_config ]]; then
+            if ! grep -qE "^Port ${!ADMIN_PORT}$" /etc/ssh/sshd_config; then
+              sed -i 's/^#\\?Port .*/Port '"${!ADMIN_PORT}"'/' /etc/ssh/sshd_config || true
+              if ! grep -qE "^Port " /etc/ssh/sshd_config; then
+                echo "Port ${!ADMIN_PORT}" >> /etc/ssh/sshd_config
+              fi
+              systemctl restart sshd || systemctl restart ssh || true
+            fi
+          fi
+
+          # --- systemd units ------------------------------------------------------
+          cat > /etc/systemd/system/anglerfish-sensor.service <<EOF
+          [Unit]
+          Description=anglerfish honeypot sensor
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          User=anglerfish
+          Group=decoy
+          WorkingDirectory=${!APP}
+          Environment=PYTHONUNBUFFERED=1
+          ExecStart=/usr/bin/python3 ${!APP}/anglerfish.py sensor \\
+            --bind 0.0.0.0 \\
+            --ports 2222 8080 8443 2525 2121 2323 \\
+            --state-dir /opt/anglerfish/state \\
+            --log /opt/anglerfish/log/sessions.log \\
+            --console http://127.0.0.1:8770 \\
+            --token ${!TOKEN}
+          Restart=always
+          RestartSec=5
+          # Hardening
+          NoNewPrivileges=true
+          PrivateTmp=true
+          ProtectSystem=strict
+          ProtectHome=true
+          ReadWritePaths=/opt/anglerfish/state /opt/anglerfish/log
+          CapabilityBoundingSet=
+          AmbientCapabilities=
+          MemoryMax=256M
+          TasksMax=128
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+
+          cat > /etc/systemd/system/anglerfish-console.service <<EOF
+          [Unit]
+          Description=anglerfish console (localhost only)
+          After=network-online.target
+
+          [Service]
+          Type=simple
+          User=anglerfish
+          Group=decoy
+          WorkingDirectory=${!APP}
+          Environment=PYTHONUNBUFFERED=1
+          ExecStart=/usr/bin/python3 ${!APP}/anglerfish.py console \\
+            --host 127.0.0.1 --port 8770 \\
+            --db /opt/anglerfish/state/console.db \\
+            --token ${!TOKEN}
+          Restart=always
+          RestartSec=5
+          NoNewPrivileges=true
+          PrivateTmp=true
+          ProtectSystem=strict
+          ProtectHome=true
+          ReadWritePaths=/opt/anglerfish/state /opt/anglerfish/log
+          MemoryMax=128M
+          TasksMax=64
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+
+          systemctl daemon-reload
+          systemctl enable --now anglerfish-console.service
+          systemctl enable --now anglerfish-sensor.service
+
+          # --- banner for the operator -------------------------------------------
+          PUBLIC_IP=$(curl -s --connect-timeout 2 http://169.254.169.254/latest/meta-data/public-ipv4 || echo unknown)
+          cat > /opt/anglerfish/READY.txt <<EOF
+          anglerfish is up.
+
+          Public IP:      ${!PUBLIC_IP}
+          Honeypot ports: 22/tcp (ssh), 80/tcp (http), 443/tcp (https),
+                          21/tcp (ftp), 23/tcp (telnet), 25/tcp (smtp)
+                          (iptables-redirected to high ports; sensor is unprivileged)
+          Admin SSH:      port ${!ADMIN_PORT} (security group: your IP only)
+          Console:        http://127.0.0.1:8770 on the instance (SSH tunnel to reach it)
+          Console token:  ${!TOKEN}
+
+          Shodan will see OpenSSH 8.9p1 + nginx 1.18.0 (Ubuntu) + Postfix + vsftpd.
+
+          Tear down: aws cloudformation delete-stack --stack-name <name>
+          EOF
+          chown anglerfish:anglerfish /opt/anglerfish/READY.txt
+          echo "=== bootstrap done $(date -u) ==="
+          cat /opt/anglerfish/READY.txt
+
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-honeypot"
+        - Key: Project
+          Value: anglerfish
+        - Key: FreeTier
+          Value: "true"
+      MetadataOptions:
+        HttpTokens: required
+        # DEPLOY-2026-10-19: hop limit 1 is applied OUT-OF-BAND with
+        #   aws ec2 modify-instance-metadata-options --http-put-response-hop-limit 1 --http-tokens required
+        # because ANY CFN change to HoneypotInstance re-evaluates ImageId and the
+        # change set reports Replacement=Conditional (would lose public IP 203.0.113.10). Leave this value
+        # as-is so CFN never touches the instance; the live value (1) is expected drift.
+        HttpPutResponseHopLimit: 1
+        HttpEndpoint: enabled
+
+  # Auto-stop if egress looks like the box is being used as a DDoS amp / spray host.
+  NetworkOutAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${AWS::StackName}-network-out-stop"
+      AlarmDescription: >
+        NetworkOut over 24h exceeded the budgeted free-tier-safe threshold.
+        STOPPING the instance to protect you from data-transfer charges.
+      Namespace: AWS/EC2
+      MetricName: NetworkOut
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref HoneypotInstance
+      Statistic: Sum
+      Period: 86400
+      EvaluationPeriods: 1
+      Threshold: !Ref NetworkOutAlarmBytes
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref AlarmTopic
+        - !Sub "arn:${AWS::Partition}:automate:${AWS::Region}:ec2:stop"
+      TreatMissingData: notBreaching
+
+  # CPU credit alarm for t3/t2 ? informational, does not stop.
+  CpuCreditAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: UseT3
+    Properties:
+      AlarmName: !Sub "${AWS::StackName}-cpu-credits-low"
+      AlarmDescription: t3 CPU credit balance low (honeypot under heavy scan load)
+      Namespace: AWS/EC2
+      MetricName: CPUCreditBalance
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref HoneypotInstance
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: 10
+      ComparisonOperator: LessThanThreshold
+      AlarmActions: [!Ref AlarmTopic]
+      TreatMissingData: notBreaching
+
+  # ======================================================================
+  # BLUE-REWORK: off-host log shipping + detection (CloudWatch Logs only).
+  # Cost: ~26 MB/day today -> ~0.8 GB/mo ingest (~$0.40/mo list, $0 inside the
+  # 5 GB/mo always-free tier). 2 metrics + 2 alarms fit the 10/10 free tier.
+  # ======================================================================
+  SessionsLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain          # evidence survives a stack delete; expires via retention
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub "/${AWS::StackName}/sessions"
+      RetentionInDays: !Ref LogRetentionDays
+      LogGroupClass: STANDARD       # INFREQUENT_ACCESS is cheaper but has no metric filters
+      Tags:
+        - Key: Project
+          Value: anglerfish
+
+  CwAgentConfigParam:
+    Type: AWS::SSM::Parameter       # Standard tier: free
+    Properties:
+      Name: !Sub "/${AWS::StackName}/cwagent-config"
+      Type: String
+      Tier: Standard
+      Description: amazon-cloudwatch-agent config for anglerfish log shipping
+      Value: !Sub |
+        {"agent":{"run_as_user":"root","region":"${AWS::Region}","logfile":"/opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log"},
+         "logs":{"force_flush_interval":5,"logs_collected":{"files":{"collect_list":[
+          {"file_path":"/opt/anglerfish/log/events.jsonl","log_group_name":"${SessionsLogGroup}","log_stream_name":"{instance_id}/events","timestamp_format":"%Y-%m-%dT%H:%M:%S.%fZ","timezone":"UTC","encoding":"utf-8"},
+          {"file_path":"/opt/anglerfish/log/sessions.log","log_group_name":"${SessionsLogGroup}","log_stream_name":"{instance_id}/sessions-legacy","encoding":"utf-8"},
+          {"file_path":"/opt/anglerfish/log/sessions-reveals.log","log_group_name":"${SessionsLogGroup}","log_stream_name":"{instance_id}/reveals","encoding":"utf-8"}
+         ]}}}}
+
+  # Run-Command document (free). Creating it runs nothing; you trigger it with
+  # aws ssm send-command --document-name <this> when you approve the rollout.
+  CwAgentRolloutDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: !Sub "${AWS::StackName}-cwagent-rollout"
+      DocumentType: Command
+      DocumentFormat: YAML
+      Content:
+        schemaVersion: "2.2"
+        description: Install + configure amazon-cloudwatch-agent to ship anglerfish logs (read-only toward the sensor).
+        mainSteps:
+          - action: aws:runShellScript
+            name: rollout
+            inputs:
+              timeoutSeconds: "600"
+              runCommand:
+                - set -euo pipefail
+                - rpm -q amazon-cloudwatch-agent >/dev/null 2>&1 || dnf -y install amazon-cloudwatch-agent
+                - !Sub "/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c ssm:/${AWS::StackName}/cwagent-config"
+                - mkdir -p /etc/systemd/system/amazon-cloudwatch-agent.service.d
+                - printf '[Service]\nMemoryMax=128M\nCPUQuota=25%%\n' > /etc/systemd/system/amazon-cloudwatch-agent.service.d/10-decoy-limits.conf
+                - systemctl daemon-reload && systemctl enable amazon-cloudwatch-agent && systemctl restart amazon-cloudwatch-agent
+                - /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a status
+
+  # --- detection: every filter feeds ONE of two metrics (keeps metric/alarm count in free tier)
+  MfCriticalAuthOk:
+    Type: AWS::Logs::MetricFilter
+    Condition: DoLogAlarms
+    Properties:
+      LogGroupName: !Ref SessionsLogGroup
+      FilterName: crit-auth-ok
+      FilterPattern: '{ $.event = "auth" && $.auth_ok IS TRUE }'
+      MetricTransformations:
+        - {MetricNamespace: anglerfish/detections, MetricName: AnglerfishCritical, MetricValue: "1"}
+  MfCriticalAuthOkLegacy:
+    Type: AWS::Logs::MetricFilter
+    Condition: DoLogAlarms
+    Properties:
+      LogGroupName: !Ref SessionsLogGroup
+      FilterName: crit-auth-ok-legacy
+      FilterPattern: '{ $.auth_ok IS TRUE && $.peer_ip = "*" }'
+      MetricTransformations:
+        - {MetricNamespace: anglerfish/detections, MetricName: AnglerfishCritical, MetricValue: "1"}
+  MfCriticalOrgCred:
+    Type: AWS::Logs::MetricFilter
+    Condition: DoLogAlarms
+    Properties:
+      LogGroupName: !Ref SessionsLogGroup
+      FilterName: crit-org-themed-cred
+      FilterPattern: '{ $.event = "auth" && ($.username = %Example% || $.password = %Example% || $.password = %Clinic%) }'
+      MetricTransformations:
+        - {MetricNamespace: anglerfish/detections, MetricName: AnglerfishCritical, MetricValue: "1"}
+  MfHighSynoWebapi:
+    Type: AWS::Logs::MetricFilter
+    Condition: DoLogAlarms
+    Properties:
+      LogGroupName: !Ref SessionsLogGroup
+      FilterName: high-synology-webapi
+      FilterPattern: '{ $.event = "http" && $.http_path = %\/webapi\/|\/webman\/% }'
+      MetricTransformations:
+        - {MetricNamespace: anglerfish/detections, MetricName: AnglerfishHighSignal, MetricValue: "1"}
+  MfHighSynoWebapiLegacy:
+    Type: AWS::Logs::MetricFilter
+    Condition: DoLogAlarms
+    Properties:
+      LogGroupName: !Ref SessionsLogGroup
+      FilterName: high-synology-webapi-legacy
+      FilterPattern: '{ $.first_bytes = %\/webapi\/|\/webman\/% && $.peer_ip = "*" }'
+      MetricTransformations:
+        - {MetricNamespace: anglerfish/detections, MetricName: AnglerfishHighSignal, MetricValue: "1"}
+  MfHighFtpProtocol:
+    Type: AWS::Logs::MetricFilter
+    Condition: DoLogAlarms
+    Properties:
+      LogGroupName: !Ref SessionsLogGroup
+      FilterName: high-ftp-protocol-cmd
+      FilterPattern: '{ $.event = "ftp" && ($.ftp_cmd = "SYST" || $.ftp_cmd = "FEAT" || $.ftp_cmd = "STAT" || $.ftp_cmd = "SITE" || $.ftp_cmd = "HELP" || $.ftp_cmd = "AUTH" || $.ftp_cmd = "PASV" || $.ftp_cmd = "EPSV" || $.ftp_cmd = "LIST" || $.ftp_cmd = "RETR" || $.ftp_cmd = "STOR") }'
+      MetricTransformations:
+        - {MetricNamespace: anglerfish/detections, MetricName: AnglerfishHighSignal, MetricValue: "1"}
+  MfHighForgedSession:
+    Type: AWS::Logs::MetricFilter
+    Condition: DoLogAlarms
+    Properties:
+      LogGroupName: !Ref SessionsLogGroup
+      FilterName: high-forged-session-material
+      FilterPattern: '{ $.event = "http" && $.session_material_presented IS TRUE && $.session_material_valid IS FALSE }'
+      MetricTransformations:
+        - {MetricNamespace: anglerfish/detections, MetricName: AnglerfishHighSignal, MetricValue: "1"}
+
+  # DEPLOY-2026-10-19: R1b bait-taken (detection-rules.md) - was specified but missing from the template.
+  MfCriticalBaitTaken:
+    Type: AWS::Logs::MetricFilter
+    Condition: DoLogAlarms
+    Properties:
+      LogGroupName: !Ref SessionsLogGroup
+      FilterName: crit-r1b-bait-taken
+      FilterPattern: '{ $.event = "read-file" && $.path_read = "*" }'
+      MetricTransformations:
+        - {MetricNamespace: anglerfish/detections, MetricName: AnglerfishCritical, MetricValue: "1"}
+  MfCriticalBaitTakenLegacy:
+    Type: AWS::Logs::MetricFilter
+    Condition: DoLogAlarms
+    Properties:
+      LogGroupName: !Ref SessionsLogGroup
+      FilterName: crit-r1b-bait-taken-legacy
+      FilterPattern: '{ $.peer_ip = "*" && $.auth_ok IS TRUE && $.read_files[0] = "*" }'
+      MetricTransformations:
+        - {MetricNamespace: anglerfish/detections, MetricName: AnglerfishCritical, MetricValue: "1"}
+
+  AnglerfishCriticalAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: DoLogAlarms
+    Properties:
+      AlarmName: !Sub "${AWS::StackName}-detect-critical"
+      AlarmDescription: R1/R1b - planted creds used (auth_ok), bait/canary file taken, or org-themed (persona brand) credential guess - targeted attacker.
+      Namespace: anglerfish/detections
+      MetricName: AnglerfishCritical
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  AnglerfishHighSignalAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: DoLogAlarms
+    Properties:
+      AlarmName: !Sub "${AWS::StackName}-detect-high-signal"
+      AlarmDescription: At least 5 high-signal hits in 1h (Synology webapi CGI, FTP protocol dialogue, forged sid/X-SYNO-TOKEN).
+      Namespace: anglerfish/detections
+      MetricName: AnglerfishHighSignal
+      Statistic: Sum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+Outputs:
+  LogGroup:
+    Description: BLUE-REWORK off-host honeypot log group
+    Value: !Ref SessionsLogGroup
+  CwAgentRollout:
+    Description: BLUE-REWORK one-shot agent rollout (run only after you approve)
+    Value: !Sub "aws ssm send-command --region ${AWS::Region} --instance-ids ${HoneypotInstance} --document-name ${CwAgentRolloutDocument} --comment anglerfish-cwagent-rollout"
+  PublicIp:
+    Description: Public IPv4 ? point Shodan / scanners here
+    Value: !GetAtt HoneypotInstance.PublicIp
+  InstanceId:
+    Value: !Ref HoneypotInstance
+  AdminSshCommand:
+    Description: SSH to the real admin port (your IP only)
+    Value: !Sub "ssh -i <key.pem> -p ${AdminSshPort} ec2-user@${HoneypotInstance.PublicIp}"
+  ConsoleTunnel:
+    Description: Reach the localhost console via SSH tunnel
+    Value: !Sub "ssh -i <key.pem> -p ${AdminSshPort} -L 8770:127.0.0.1:8770 ec2-user@${HoneypotInstance.PublicIp}"
+  HoneypotPorts:
+    Value: "22/tcp SSH facade, 80/tcp HTTP NAS, 443/tcp HTTPS, 21/tcp FTP, 23/tcp telnet, 25/tcp SMTP"
+  SecurityPosture:
+    Value: >
+      Sensor runs as user 'decoy' (non-root) behind iptables REDIRECT.
+      Console on 127.0.0.1:8770 with shared token. No SSH forwarding/subsystems.
+      SMTP refuses RCPT (closed relay). No NAT Gateway, no Elastic IP.
+  CostGuardrails:
+    Value: !Sub >
+      Budget ${MonthlyBudgetUSD} USD/mo with 50/80/100% alerts to ${AlertEmail}.
+      EstimatedCharges alarm at $1. NetworkOut alarm STOPS the instance at
+      ${NetworkOutAlarmBytes} bytes/day. Confirm the SNS email subscription
+      or you will get no alerts.
+  TearDown:
+    Value: !Sub "aws cloudformation delete-stack --stack-name ${AWS::StackName} --region ${AWS::Region}"

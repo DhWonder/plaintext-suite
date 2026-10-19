@@ -1,0 +1,11 @@
+# the repo root ignores everything except .c/.h/.md, so allow the Makefile back
+!Makefile
+
+# the shared secret - never commit this (the root rule also covers it)
+vpn.key
+*.key
+
+# built binaries
+vpn_client
+vpn_server
+*.o

@@ -1,0 +1,475 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "anglerfish/events/v2",
+  "title": "anglerfish sensor event (one JSON object per line in /opt/anglerfish/log/events.jsonl)",
+  "description": "Flat envelope + flat per-event keys. Write each event IMMEDIATELY (not at session end). 'ts' MUST be the first key (CloudWatch agent timestamp parse). Unknown keys allowed. Keep any single line < 200 KB. Strings that may hold attacker bytes: UTF-8 with invalid bytes escaped (\\xNN) OR hex with the matching *_encoding='hex'. Never execute or interpret captured input.",
+  "type": "object",
+  "required": [
+    "ts",
+    "schema_version",
+    "event",
+    "service",
+    "src_ip",
+    "src_port",
+    "dst_port",
+    "session_id",
+    "seq",
+    "sensor"
+  ],
+  "properties": {
+    "ts": {
+      "type": "string",
+      "description": "ISO8601 UTC, millisecond precision, 'Z' suffix, e.g. 2026-10-18T18:45:01.123Z. FIRST key."
+    },
+    "schema_version": {
+      "type": "string",
+      "const": "2"
+    },
+    "sensor": {
+      "type": "string",
+      "description": "sensor name (existing 'sensor' field)"
+    },
+    "host": {
+      "type": "string",
+      "description": "persona hostname, e.g. files01"
+    },
+    "event": {
+      "type": "string",
+      "enum": [
+        "session-start",
+        "session-end",
+        "probe",
+        "first-bytes",
+        "http",
+        "http-body",
+        "ftp",
+        "smtp",
+        "telnet",
+        "ssh-client",
+        "ssh-kex",
+        "ssh-hassh",
+        "ssh-reject",
+        "ssh-pubkey",
+        "ssh-command",
+        "auth",
+        "read-file",
+        "tls",
+        "dns",
+        "gotcha",
+        "guestbook",
+        "auth-slowdown",
+        "tarpit"
+      ]
+    },
+    "service": {
+      "type": "string",
+      "enum": [
+        "ssh",
+        "http",
+        "https",
+        "ftp",
+        "telnet",
+        "smtp",
+        "dns",
+        "sandbox"
+      ],
+      "description": "https = HTTP on 443/8443 after TLS"
+    },
+    "transport": {
+      "type": "string",
+      "enum": [
+        "tcp",
+        "udp"
+      ],
+      "default": "tcp"
+    },
+    "src_ip": {
+      "type": "string",
+      "description": "= legacy peer_ip"
+    },
+    "src_port": {
+      "type": "integer",
+      "description": "= legacy peer_port"
+    },
+    "dst_port": {
+      "type": "integer",
+      "description": "PUBLIC facade port the attacker hit (22/80/443/21/23/25/53), pre-REDIRECT"
+    },
+    "listen_port": {
+      "type": "integer",
+      "description": "local sensor port (2222/8080/8443/2121/2323/2525) = legacy local_port"
+    },
+    "session_id": {
+      "type": "string",
+      "description": "= legacy session 'id', e.g. sensor-1760823901-42"
+    },
+    "seq": {
+      "type": "integer",
+      "description": "0-based event index within the session"
+    },
+    "tls": {
+      "type": "boolean",
+      "description": "connection was TLS-wrapped"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "optional sensor-side hints, e.g. ['synology-api','traversal']; detection does NOT rely on them"
+    },
+    "duration_s": {
+      "type": "number",
+      "description": "session-end"
+    },
+    "bytes_in": {
+      "type": "integer",
+      "description": "session-end"
+    },
+    "bytes_out": {
+      "type": "integer",
+      "description": "session-end"
+    },
+    "event_count": {
+      "type": "integer",
+      "description": "session-end"
+    },
+    "credential_count": {
+      "type": "integer",
+      "description": "session-end"
+    },
+    "close_reason": {
+      "type": "string",
+      "enum": [
+        "client-close",
+        "idle-timeout",
+        "tarpit",
+        "protocol-error",
+        "limit",
+        "server-close"
+      ],
+      "description": "session-end"
+    },
+    "first_bytes": {
+      "type": "string",
+      "description": "first-bytes: up to 2048 chars (was 120 bytes / 200 chars)"
+    },
+    "first_bytes_encoding": {
+      "type": "string",
+      "enum": [
+        "utf8",
+        "hex"
+      ]
+    },
+    "first_bytes_len": {
+      "type": "integer",
+      "description": "TRUE length of the first read before truncation"
+    },
+    "first_bytes_truncated": {
+      "type": "boolean"
+    },
+    "http_method": {
+      "type": "string"
+    },
+    "http_path": {
+      "type": "string",
+      "description": "path only, no query"
+    },
+    "http_query": {
+      "type": "string",
+      "description": "raw query string (no leading ?)"
+    },
+    "http_version": {
+      "type": "string"
+    },
+    "host_header": {
+      "type": "string"
+    },
+    "user_agent": {
+      "type": "string"
+    },
+    "referer": {
+      "type": "string"
+    },
+    "content_type": {
+      "type": "string"
+    },
+    "content_length": {
+      "type": "integer"
+    },
+    "uri_len": {
+      "type": "integer",
+      "description": "TRUE length of the request-target (path + ? + query) before any truncation"
+    },
+    "request_line": {
+      "type": "string",
+      "description": "first request line, capped at 2048 chars"
+    },
+    "request_line_truncated": {
+      "type": "boolean"
+    },
+    "headers_of_interest": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "subset of headers: cookie, x-syno-token, authorization, x-forwarded-for, origin, accept"
+    },
+    "body_len": {
+      "type": "integer"
+    },
+    "body_first_bytes": {
+      "type": "string",
+      "description": "first 512 bytes of body"
+    },
+    "body_encoding": {
+      "type": "string",
+      "enum": [
+        "utf8",
+        "hex"
+      ]
+    },
+    "http_status": {
+      "type": "integer",
+      "description": "status we returned"
+    },
+    "response_bytes": {
+      "type": "integer"
+    },
+    "session_material_presented": {
+      "type": "boolean",
+      "description": "any of: Cookie sid=, X-SYNO-TOKEN, Authorization SynoToken"
+    },
+    "session_material_valid": {
+      "type": "boolean",
+      "description": "false when forged / unknown"
+    },
+    "session_cookie": {
+      "type": "string"
+    },
+    "syno_token": {
+      "type": "string"
+    },
+    "syno_api": {
+      "type": "string",
+      "description": "parsed api= query value, e.g. SYNO.API.Info"
+    },
+    "syno_method": {
+      "type": "string",
+      "description": "parsed method= query value"
+    },
+    "syno_version": {
+      "type": "string"
+    },
+    "ftp_cmd": {
+      "type": "string",
+      "description": "verb only: USER PASS SYST FEAT STAT SITE HELP QUIT PWD CWD LIST RETR STOR PASV EPSV PORT AUTH TYPE MODE STRU"
+    },
+    "ftp_arg": {
+      "type": "string",
+      "description": "argument after the verb, capped at 512 chars"
+    },
+    "ftp_reply_code": {
+      "type": "integer"
+    },
+    "smtp_cmd": {
+      "type": "string"
+    },
+    "smtp_arg": {
+      "type": "string"
+    },
+    "smtp_reply_code": {
+      "type": "integer"
+    },
+    "telnet_line": {
+      "type": "string"
+    },
+    "ssh_client_version": {
+      "type": "string",
+      "description": "SSH-2.0-... banner"
+    },
+    "ssh_kex_algs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ssh_host_key_algs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ssh_enc_algs_ctos": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ssh_mac_algs_ctos": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ssh_comp_algs_ctos": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "hassh": {
+      "type": "string",
+      "description": "HASSH MD5 fingerprint"
+    },
+    "ssh_pubkey_type": {
+      "type": "string"
+    },
+    "ssh_pubkey_fp": {
+      "type": "string"
+    },
+    "ssh_command": {
+      "type": "string",
+      "description": "requested exec / shell command (never run)"
+    },
+    "username": {
+      "type": "string"
+    },
+    "password": {
+      "type": "string"
+    },
+    "auth_ok": {
+      "type": "boolean",
+      "description": "true ONLY when a planted credential matched"
+    },
+    "cred_source": {
+      "type": "string",
+      "enum": [
+        "ssh-password",
+        "ssh-pubkey",
+        "http-form",
+        "http-basic",
+        "http-syno-api",
+        "ftp-userpass",
+        "telnet-userpass",
+        "smtp-auth",
+        "other"
+      ]
+    },
+    "auth_method": {
+      "type": "string",
+      "description": "optional finer grain, e.g. password / publickey / none"
+    },
+    "tls_version": {
+      "type": "string",
+      "description": "TLSv1.2 / TLSv1.3"
+    },
+    "tls_cipher": {
+      "type": "string"
+    },
+    "tls_sni": {
+      "type": "string"
+    },
+    "tls_alpn": {
+      "description": "client-offered ALPN list (array preferred) or joined string",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "tls_ja3": {
+      "type": "string",
+      "description": "JA3 MD5"
+    },
+    "tls_ja3s": {
+      "type": "string",
+      "description": "JA3S exact (TLS1.3 often 771,4866,43-51)"
+    },
+    "tls_cert_fp_sha256": {
+      "type": "string",
+      "description": "SHA-256 of the leaf we presented"
+    },
+    "tls_handshake_ok": {
+      "type": "boolean"
+    },
+    "dns_qname": {
+      "type": "string"
+    },
+    "dns_qtype": {
+      "type": "string",
+      "description": "A AAAA TXT MX SOA NS ANY AXFR version.bind"
+    },
+    "dns_opcode": {
+      "type": "string"
+    },
+    "dns_rcode": {
+      "type": "string"
+    },
+    "dns_id": {
+      "type": "integer"
+    },
+    "path_read": {
+      "type": "string",
+      "description": "read-file / gotcha / bait FileStation path taken (CRITICAL with auth_ok)"
+    },
+    "gotcha_id": {
+      "type": "string"
+    },
+    "guestbook_note": {
+      "type": "string"
+    },
+    "tarpit_ms": {
+      "type": "integer",
+      "description": "auth-slowdown / tarpit delay applied"
+    },
+    "tarpit_reason": {
+      "type": "string"
+    },
+    "tls_alpn_selected": {
+      "type": "string",
+      "description": "negotiated ALPN"
+    },
+    "tls_ja3_str": {
+      "type": "string",
+      "description": "raw JA3 string before hash"
+    },
+    "tls_ja3s_str": {
+      "type": "string",
+      "description": "raw JA3S string"
+    },
+    "tls_client_versions": {
+      "description": "client-advertised versions from ClientHello",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "tls_fp_path": {
+      "type": "string",
+      "enum": [
+        "memory_bio",
+        "fallback"
+      ],
+      "description": "memory_bio = full ClientHello parse; fallback = plaintext/garbage on 443"
+    },
+    "tls_error": {
+      "type": "string",
+      "description": "handshake/parse error; failed HS may still carry JA3/SNI"
+    }
+  },
+  "additionalProperties": true
+}

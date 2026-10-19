@@ -1,0 +1,37 @@
+{
+  "agent": {
+    "run_as_user": "root",
+    "region": "us-east-1",
+    "logfile": "/opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log",
+    "debug": false
+  },
+  "logs": {
+    "force_flush_interval": 5,
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          {
+            "file_path": "/opt/anglerfish/log/events.jsonl",
+            "log_group_name": "/anglerfish/sessions",
+            "log_stream_name": "{instance_id}/events",
+            "timestamp_format": "%Y-%m-%dT%H:%M:%S.%fZ",
+            "timezone": "UTC",
+            "encoding": "utf-8"
+          },
+          {
+            "file_path": "/opt/anglerfish/log/sessions.log",
+            "log_group_name": "/anglerfish/sessions",
+            "log_stream_name": "{instance_id}/sessions-legacy",
+            "encoding": "utf-8"
+          },
+          {
+            "file_path": "/opt/anglerfish/log/sessions-reveals.log",
+            "log_group_name": "/anglerfish/sessions",
+            "log_stream_name": "{instance_id}/reveals",
+            "encoding": "utf-8"
+          }
+        ]
+      }
+    }
+  }
+}

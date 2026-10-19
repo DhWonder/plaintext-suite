@@ -1,5 +1,8 @@
 # plaintext-suite
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+
 Security tools that read, explain, and do not guess.
 
 ## Still a work in progress
@@ -14,15 +17,17 @@ limitations written down.
 | Tool | Language | What it does |
 |------|----------|--------------|
 | [traffic-analyzer](tools/traffic-analyzer) | Python | Reads a network capture and works out who is flooding you, how, and what to change. Includes a packet browser with Wireshark style filters, for when the question is "show me the actual packet". |
-| [decoy-house](tools/decoy-house) | Python | A machine that looks worth breaking into, and tells on whoever does. Honeypot plus a console. |
+| [anglerfish](tools/anglerfish) | Python | A low-cost deception honeypot that looks like a real NAS/SSH/FTP/mail host, ships structured logs off-box, and alerts when bait is taken. Persona and secrets live in config, not the repo. |
 | [email-checker](tools/email-checker) | Python | Is this email a scam, is the attachment safe to open, where do its links actually go, can the sender's domain be forged, and has this password or address been leaked? One verdict, and the message never leaves your machine. |
 | [domain-checker](tools/domain-checker) | Python | Can a criminal send email pretending to be this business? (SPF/DMARC) |
 | [backup-checker](tools/backup-checker) | shell | Verifies backups actually ran, and that they can actually restore. |
 | [system-checker](tools/system-checker) | C + PowerShell | What is this machine (make, OS, processor, memory, graphics, disks, network, real or virtual) and is anything wrong with it. C for Linux, PowerShell for Windows, same report from both. |
 | [link-cleaner](tools/link-cleaner) | C + shell | Takes the tracking off a link before you send it. Campaign tags, click identifiers, affiliate tags, share tokens and highlighted-sentence fragments, plus the redirectors that wrap a link only to record the click. Watches the clipboard if you want it to. |
 | [exposure-checker](tools/exposure-checker) | C | What can reach this machine, and what is behind each door. Names the program holding every open port, tells a loopback service apart from a genuinely open one, and says whether "every network" includes the internet. Reads `/proc`; scans nothing. |
+| [iot-recon](tools/iot-recon) | Python | Authorized IoT assessment: finds a smart device's ports, services and UPnP details, matches known CVEs from an offline database, and names the most likely way each device gets owned. Acts only on targets you name; everything intrusive is opt-in. |
+| [vpn](tools/vpn) | C | A working VPN in C89: a tun device, an encrypted UDP tunnel (ChaCha20-Poly1305) and the route takeover that sends every packet out through the server. A teaching build with the reasoning written down. |
 
-Seven of the eight can email you when they find something, which is the difference between
+Eight of the eleven can email you when they find something, which is the difference between
 a tool that answers a question and one that watches for you. It is off
 until you set it up and ask for it, it goes through your own mail server, and
 [`tools/notifications`](tools/notifications) says exactly what ends up in the

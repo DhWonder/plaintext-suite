@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Secrets / config
+.env
+
+# Real scan output — never commit live assessments of a real network.
+# Keep only the tiny synthetic samples under examples/.
+*_report.json
+iotscan_report.json
+phantom_recon_output.json
+host_*.json
+tv_*.json
+ble*.json
+bt*.json
+report.json

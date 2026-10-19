@@ -1,0 +1,271 @@
+{
+  "_meta": {
+    "description": "Offline, extensible IoT CVE knowledge base for iotscan.py. Add entries freely. Matching is done case-insensitively against detected fingerprints (HTTP Server header, banners, UPnP manufacturer/modelName/modelNumber, service versions). This DB is illustrative/educational, NOT exhaustive - always verify a match manually before treating it as exploitable.",
+    "schema": {
+      "match": "object of fields any of which (regex, case-insensitive) must match the corresponding detected fingerprint field. Fields: server, banner, manufacturer, model, version, service, any (matches any fingerprint string).",
+      "cve": "CVE id or advisory id",
+      "severity": "info|low|medium|high|critical",
+      "description": "short human description",
+      "endpoints": "optional list of HTTP paths the webvuln module may read-only probe to corroborate",
+      "references": "list of URLs",
+      "botnet": "optional bool - true if this device class is known to be recruited by IoT botnets (used by the botnet-exposure audit; descriptive knowledge only, not an exploit)",
+      "attack_vector": "optional short string naming the typical ingress for this class, e.g. 'default telnet creds', 'firmware upload'"
+    },
+    "version": "1.1"
+  },
+  "entries": [
+    {
+      "cve": "CVE-2017-17215",
+      "match": {
+        "any": "huawei\\s*hg532|Realtek/v?\\d|Huawei Home Gateway"
+      },
+      "severity": "critical",
+      "description": "Huawei HG532 UPnP/TR-064 remote command injection via the DeviceUpgrade service (used by Satori/Mirai variants).",
+      "endpoints": [
+        "/ctrlt/DeviceUpgrade_1",
+        "/desc/devicedesc.xml"
+      ],
+      "references": [
+        "https://nvd.nist.gov/vuln/detail/CVE-2017-17215"
+      ],
+      "botnet": true,
+      "attack_vector": "UPnP/TR-064 command injection (Satori/Mirai)"
+    },
+    {
+      "cve": "CVE-2014-9222",
+      "match": {
+        "any": "RomPager/4\\.07|AllegroSoft|RomPager"
+      },
+      "severity": "critical",
+      "description": "'Misfortune Cookie' - RomPager <= 4.34 embedded webserver memory corruption allowing admin takeover of many SOHO routers.",
+      "endpoints": [
+        "/"
+      ],
+      "references": [
+        "https://nvd.nist.gov/vuln/detail/CVE-2014-9222"
+      ]
+    },
+    {
+      "cve": "CVE-2018-10561",
+      "match": {
+        "any": "GPON|Dasan|ZXHN"
+      },
+      "severity": "critical",
+      "description": "Dasan GPON home router authentication bypass (append ?images/ to a protected URL) commonly chained with CVE-2018-10562 command injection.",
+      "endpoints": [
+        "/GponForm/diag_Form?images/",
+        "/menu.html?images/"
+      ],
+      "references": [
+        "https://nvd.nist.gov/vuln/detail/CVE-2018-10561"
+      ],
+      "botnet": true,
+      "attack_vector": "GPON auth bypass (Mirai variants)"
+    },
+    {
+      "cve": "CVE-2021-28372",
+      "match": {
+        "any": "ThroughTek|Kalay|P2P"
+      },
+      "severity": "critical",
+      "description": "ThroughTek Kalay P2P SDK flaw allowing remote attackers to impersonate IoT cameras/devices and intercept AV + credentials.",
+      "endpoints": [],
+      "references": [
+        "https://nvd.nist.gov/vuln/detail/CVE-2021-28372"
+      ]
+    },
+    {
+      "cve": "CVE-2017-7577",
+      "match": {
+        "any": "Xiongmai|NetSurveillance|uc-httpd|Hi3510|dvrdvs"
+      },
+      "severity": "high",
+      "description": "Xiongmai/NetSurveillance (uc-httpd) IP camera & DVR path traversal / default-cred exposure, widely abused by Mirai-family botnets.",
+      "endpoints": [
+        "/",
+        "/err.htm",
+        "/../../../../etc/passwd"
+      ],
+      "references": [
+        "https://nvd.nist.gov/vuln/detail/CVE-2017-7577"
+      ],
+      "botnet": true,
+      "attack_vector": "default creds / traversal (Mirai-family cameras)"
+    },
+    {
+      "cve": "CVE-2021-33044",
+      "match": {
+        "any": "Dahua"
+      },
+      "severity": "critical",
+      "description": "Dahua IP camera/NVR authentication bypass via crafted NetKeyboard/loopback login data.",
+      "endpoints": [
+        "/RPC2_Login"
+      ],
+      "references": [
+        "https://nvd.nist.gov/vuln/detail/CVE-2021-33044"
+      ]
+    },
+    {
+      "cve": "CVE-2021-36260",
+      "match": {
+        "any": "Hikvision|App-webs|DNVRS-Webs"
+      },
+      "severity": "critical",
+      "description": "Hikvision IP camera/NVR unauthenticated command injection in the web server (via SDK put message).",
+      "endpoints": [
+        "/SDK/webLanguage"
+      ],
+      "references": [
+        "https://nvd.nist.gov/vuln/detail/CVE-2021-36260"
+      ],
+      "botnet": true,
+      "attack_vector": "unauth command injection (Moobot/Mirai)"
+    },
+    {
+      "cve": "CVE-2020-8863",
+      "match": {
+        "any": "Dlink|D-Link|DIR-|DAP-"
+      },
+      "severity": "high",
+      "description": "Various D-Link routers: authentication bypass / command injection in web management (model-dependent - verify exact model & firmware).",
+      "endpoints": [
+        "/",
+        "/HNAP1/"
+      ],
+      "references": [
+        "https://nvd.nist.gov/vuln/detail/CVE-2020-8863"
+      ]
+    },
+    {
+      "cve": "CVE-2018-10088",
+      "match": {
+        "any": "Boa/0\\.9|Boa HTTP"
+      },
+      "severity": "high",
+      "description": "Boa webserver (end-of-life, embedded in many cameras/routers) buffer overflow; its presence also flags an unmaintained stack (see Microsoft 'Boa' supply-chain advisory).",
+      "endpoints": [
+        "/"
+      ],
+      "references": [
+        "https://nvd.nist.gov/vuln/detail/CVE-2018-10088"
+      ]
+    },
+    {
+      "cve": "CVE-2019-11219",
+      "match": {
+        "any": "Wyze|iCamera"
+      },
+      "severity": "medium",
+      "description": "Wyze/iCamera-class devices: identity/firmware verification weaknesses - verify model & firmware.",
+      "endpoints": [],
+      "references": [
+        "https://nvd.nist.gov/vuln/detail/CVE-2019-11219"
+      ]
+    },
+    {
+      "cve": "ADB-OPEN-5555",
+      "match": {
+        "service": "adb",
+        "any": "android"
+      },
+      "severity": "critical",
+      "description": "Android Debug Bridge exposed on TCP/5555 without authentication grants a full device shell. Not a single CVE but a chronic Android-TV/box misconfiguration (ADB.Miner worm). Confirm with the adb module.",
+      "endpoints": [],
+      "references": [
+        "https://developer.android.com/studio/command-line/adb"
+      ]
+    },
+    {
+      "cve": "CHROMECAST-DIAL-OPEN",
+      "match": {
+        "any": "chromecast|eureka|google cast|dial"
+      },
+      "severity": "medium",
+      "description": "Chromecast/DIAL control endpoint (8008) reachable without auth allows unauthenticated app launch / rename / reboot on the LAN ('CastHack').",
+      "endpoints": [
+        "/setup/eureka_info",
+        "/apps"
+      ],
+      "references": [
+        "https://en.wikipedia.org/wiki/DIAL_(protocol)"
+      ]
+    },
+    {
+      "cve": "ROKU-ECP-OPEN",
+      "match": {
+        "any": "roku"
+      },
+      "severity": "low",
+      "description": "Roku External Control Protocol (8060) reachable unauthenticated allows app launch/keypress injection on the LAN if developer/ECP mode is on.",
+      "endpoints": [
+        "/query/device-info"
+      ],
+      "references": [
+        "https://developer.roku.com/docs/developer-program/dev-tools/external-control-api.md"
+      ]
+    },
+    {
+      "cve": "SAMSUNG-SMARTVIEW-OPEN",
+      "match": {
+        "any": "samsung|smartview|Tizen"
+      },
+      "severity": "low",
+      "description": "Samsung SmartView/remote WebSocket API (7676/8001/8002) can allow unauthenticated/weakly-authenticated remote control depending on firmware & 'allow unknown devices' setting.",
+      "endpoints": [
+        "/api/v2/"
+      ],
+      "references": [
+        "https://nvd.nist.gov/"
+      ]
+    },
+    {
+      "cve": "MIRAI-TELNET-DEFAULT",
+      "match": {
+        "service": "telnet"
+      },
+      "severity": "high",
+      "botnet": true,
+      "attack_vector": "default/weak telnet credentials",
+      "description": "Exposed Telnet (23) on an embedded device is the canonical Mirai recruitment vector: the botnet's loader brute-forces a small list of factory default telnet credentials, then installs a bot binary. Presence of open telnet is itself the exposure - verify the device is not internet-reachable and disable telnet.",
+      "endpoints": [],
+      "references": [
+        "https://en.wikipedia.org/wiki/Mirai_(malware)"
+      ]
+    },
+    {
+      "cve": "CVE-2018-10562",
+      "match": {
+        "any": "GPON|Dasan|ZXHN"
+      },
+      "severity": "critical",
+      "botnet": true,
+      "attack_vector": "authenticated command injection (chained with 2018-10561 bypass)",
+      "description": "Dasan GPON home router command injection in the diagnostics endpoint, chained with the CVE-2018-10561 auth bypass for unauthenticated RCE. Mass-exploited by Mirai/Hajime/Mettle variants to build router botnets.",
+      "endpoints": [
+        "/GponForm/diag_Form?images/",
+        "/diag.html?images/"
+      ],
+      "references": [
+        "https://nvd.nist.gov/vuln/detail/CVE-2018-10562"
+      ]
+    },
+    {
+      "cve": "CVE-2016-6277",
+      "match": {
+        "any": "Netgear|R7000|R6400|WNR"
+      },
+      "severity": "critical",
+      "botnet": true,
+      "attack_vector": "unauthenticated CGI command injection",
+      "description": "Netgear R7000/R6400 (and related) unauthenticated command injection via cgi-bin; trivially weaponised and incorporated into IoT botnet loaders for home-router recruitment.",
+      "endpoints": [
+        "/cgi-bin/",
+        "/currentsetting.htm"
+      ],
+      "references": [
+        "https://nvd.nist.gov/vuln/detail/CVE-2016-6277"
+      ]
+    }
+  ]
+}

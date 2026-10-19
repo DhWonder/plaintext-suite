@@ -1,0 +1,51 @@
+# Anglerfish persona — EXAMPLE ONLY (RFC 2606 / .example / example.net).
+#
+# Copy this file to config/persona.yaml (gitignored) or /etc/anglerfish/persona.yaml
+# and change EVERY value before exposing a sensor to the network.
+#
+# Why: a public repo whose defaults match a live sensor lets anyone fingerprint
+# that sensor. Hostname, company, NAS model, banners, bait names and planted
+# login usernames live here. Planted passwords, host keys and the TLS cert are
+# minted at first run and saved under ~/.anglerfish/ (never in git).
+
+identity:
+  company: "Example Clinic"
+  hostname: "files01"
+  domain: "example.net"          # use a domain you control, or .example / .invalid
+  internal_ip: "10.0.0.21"       # private-looking IP shown in bait
+  aws_region: "us-east-1"        # should match where you actually deploy
+  staff_name: "Sam"              # name that appears in mail drafts / TODOs
+
+nas:
+  model: "DS220+"                # Synology-looking model string
+  firmware: "7.2.1-69057"
+
+# Service banners. Keep these close to a real Ubuntu 22.04 box if you claim one.
+banners:
+  ssh: "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6"
+  http_server: "nginx/1.18.0 (Ubuntu)"
+  ftp: "220 {fqdn} FTP server (vsftpd 3.0.5) ready."
+  smtp: "220 {fqdn} ESMTP Postfix (Ubuntu)"
+
+# Planted logins that open the sandboxed shell / File Station.
+# password: "auto"  → minted at first run and persisted (recommended).
+# Do NOT commit real passwords. Do NOT reuse these on anything real.
+planted_logins:
+  - user: deploy
+    password: auto
+    planted_in: "/var/www/nas/docker-compose.yml"
+  - user: admin
+    password: auto
+    planted_in: "/home/admin/Mail/Drafts/re-nas-access.txt"
+
+bait:
+  # Relative path under https://files.<domain>/ that the lure URL points at.
+  # The URL itself is dead; downloading bait is the tripwire.
+  lure_path: "/finance/{year}/payroll-master.xlsx"
+  # Names of the post-auth "credential screenshot" images. Change these so
+  # public copies of Anglerfish do not share the same bait filenames.
+  vault_image: "password-vault-export.png"
+  creds_image: "domainadmin-creds-backup.png"
+  # Optional directory of your own PNG bait images (kept out of git).
+  # Leave empty to auto-generate unique PNGs per install from the canary seed.
+  assets_dir: ""

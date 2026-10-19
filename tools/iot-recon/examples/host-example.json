@@ -1,0 +1,55 @@
+{
+  "tool": "iotscan",
+  "version": "1.0",
+  "started": "2026-01-01T12:00:00.000000+00:00",
+  "target_spec": "192.0.2.10",
+  "modules": ["ports", "http", "upnp", "media", "cve"],
+  "_note": "SYNTHETIC EXAMPLE. Not a real scan. Addresses are RFC5737 documentation ranges; MACs and device details are fabricated. Replace with output from your own authorized scan.",
+  "devices": [
+    {
+      "ip": "192.0.2.10",
+      "scanned_at": "2026-01-01T12:00:00.000000+00:00",
+      "ports": {
+        "23": {"state": "open", "service": "telnet", "version": "", "banner": "Example-IoT login:"},
+        "80": {"state": "open", "service": "http", "version": "", "banner": ""},
+        "49152": {"state": "open", "service": "upnp-dynamic", "version": "", "banner": ""}
+      },
+      "http": [
+        {"port": 80, "tls": false, "paths": [
+          {"path": "/", "status": 200, "server": "Example-Embedded/1.0", "www_authenticate": "", "title": "Example Router Admin"}
+        ]}
+      ],
+      "upnp": {
+        "ssdp": [
+          {"location": "http://192.0.2.10:49152/device.xml", "server": "Example/1.0 UPnP/1.0",
+           "descriptor": {"friendlyName": "Example Access Point", "manufacturer": "Example Vendor",
+             "modelName": "EX-1000", "modelNumber": "1000", "serialNumber": "0000000000", "UDN": "uuid:00000000-0000-0000-0000-000000000000"}}
+        ]
+      },
+      "dial": {}, "roku": {}, "rtsp": {}, "cred_findings": [], "cve_matches": [],
+      "foothold_findings": [],
+      "findings": [
+        {"severity": "high", "detail": "Telnet (23) open on 192.0.2.10 - classic Mirai-class ingress if default/weak credentials are set."}
+      ],
+      "botnet_exposure": {
+        "recruitable": true, "severity": "high",
+        "vectors": [{"vector": "telnet_remote_shell", "severity": "high", "detail": "Telnet open", "evidence": "port 23 open"}],
+        "summary": "Open telnet is the classic Mirai ingress; confirm credentials and close/segment the service."
+      },
+      "assessment": {
+        "worst_severity": "high",
+        "exposed_ports": [23, 80, 49152],
+        "cve_matches": [],
+        "confirmed_footholds": [],
+        "suspected_issues": [],
+        "next_manual_step": "Disable telnet or set a strong unique password; place IoT on an isolated VLAN.",
+        "likely_attack_vector": "default credentials over Telnet",
+        "attack_path_summary": "How this device would most likely be compromised: default credentials over Telnet - port 23 is open and IoT gear often ships weak defaults.",
+        "botnet_recruitable": true,
+        "botnet_exposure_severity": "high",
+        "botnet_vectors": ["telnet_remote_shell"]
+      }
+    }
+  ],
+  "finished": "2026-01-01T12:00:05.000000+00:00"
+}

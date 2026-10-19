@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>anglerfish console</title>
+<link rel="icon" href="data:,">
+<style>
+ :root{--bg:#0B1220;--bg2:#0F1829;--surface:#121C2F;--line:rgba(255,255,255,.09);
+   --line2:rgba(255,255,255,.16);--text:#E8EEF7;--muted:#93A4BF;--cyan:#22D3EE;--violet:#A78BFA;
+   --mint:#34D399;--red:#FB7185;--amber:#FBBF24;}
+ *{margin:0;padding:0;box-sizing:border-box}
+ body{background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,'Segoe UI',sans-serif;
+   line-height:1.6;-webkit-text-size-adjust:100%}
+ .mono{font-family:'JetBrains Mono','SF Mono',Menlo,Consolas,monospace}
+ .wrap{max-width:1200px;margin:0 auto;padding:20px}
+ a{color:inherit}
+ header{border-bottom:1px solid var(--line);padding:16px 0;margin-bottom:20px;
+   display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+ .logo{font-size:1.15rem;font-weight:700;font-family:'JetBrains Mono',monospace}
+ .logo b{background:linear-gradient(90deg,var(--cyan),var(--violet));-webkit-background-clip:text;
+   background-clip:text;color:transparent}
+ .live{font-size:.78rem;color:var(--muted);display:flex;align-items:center;gap:7px}
+ .live i{width:8px;height:8px;border-radius:50%;background:var(--mint);
+   box-shadow:0 0 0 0 rgba(52,211,153,.6);animation:pulse 2.2s infinite}
+ @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(52,211,153,.5)}
+   70%{box-shadow:0 0 0 8px rgba(52,211,153,0)}100%{box-shadow:0 0 0 0 rgba(52,211,153,0)}}
+
+ .note{background:rgba(34,211,238,.06);border:1px solid rgba(34,211,238,.2);color:#A5F3FC;
+   border-radius:10px;padding:10px 15px;margin-bottom:18px;font-size:.83rem}
+
+ .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:11px;margin-bottom:20px}
+ .kpi{background:var(--surface);border:1px solid var(--line);border-radius:13px;padding:14px 16px}
+ .kpi .n{font-family:'JetBrains Mono',monospace;font-size:1.7rem;font-weight:700;line-height:1.1}
+ .kpi .l{font-size:.74rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-top:3px}
+ .kpi.cy .n{color:var(--cyan)} .kpi.mi .n{color:var(--mint)} .kpi.red .n{color:var(--red)}
+ .kpi.am .n{color:var(--amber)} .kpi.vi .n{color:var(--violet)}
+
+ .grid{display:grid;grid-template-columns:1.4fr 1fr;gap:16px}
+ @media(max-width:900px){.grid{grid-template-columns:1fr}}
+ .card{background:var(--surface);border:1px solid var(--line);border-radius:13px;padding:16px 18px;
+   margin-bottom:16px}
+ h2{font-size:1.02rem;font-weight:700;margin-bottom:3px}
+ .sub{color:var(--muted);font-size:.82rem;margin-bottom:13px}
+
+ table{width:100%;border-collapse:collapse;font-size:.84rem}
+ th{text-align:left;padding:7px 8px;color:var(--muted);font-size:.7rem;text-transform:uppercase;
+   letter-spacing:.06em;border-bottom:1px solid var(--line2);white-space:nowrap}
+ td{padding:7px 8px;border-bottom:1px solid var(--line)}
+ tbody tr{cursor:pointer;transition:background .12s}
+ tbody tr:hover{background:rgba(34,211,238,.06)}
+ .ip{font-family:'JetBrains Mono',monospace;color:var(--cyan)}
+ .num{font-family:'JetBrains Mono',monospace;text-align:right}
+ .pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:.68rem;font-weight:700}
+ .pill.shell{background:rgba(167,139,250,.16);color:var(--violet)}
+ .pill.http{background:rgba(34,211,238,.14);color:var(--cyan)}
+
+ .trigger{background:rgba(251,113,133,.08);border:1px solid rgba(251,113,133,.3);border-radius:10px;
+   padding:10px 13px;margin-bottom:8px;font-size:.85rem}
+ .trigger b{color:var(--red)}
+ .trigger .when{color:var(--muted);font-size:.75rem}
+
+ .empty{color:var(--muted);font-size:.85rem;padding:22px 4px;text-align:center}
+
+ /* the session panel */
+ .backdrop{position:fixed;inset:0;background:rgba(4,8,15,.6);z-index:40;opacity:0;
+   pointer-events:none;transition:opacity .25s}
+ .backdrop.on{opacity:1;pointer-events:auto}
+ .panel{position:fixed;top:0;right:0;width:min(680px,100%);height:100vh;height:100dvh;
+   background:var(--bg2);border-left:1px solid var(--line2);z-index:50;overflow-y:auto;
+   transform:translateX(100%);transition:transform .26s cubic-bezier(.4,0,.2,1);
+   box-shadow:-16px 0 50px rgba(0,0,0,.5)}
+ .panel.on{transform:translateX(0)}
+ .phead{position:sticky;top:0;background:rgba(15,24,41,.97);-webkit-backdrop-filter:blur(10px);
+   backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:15px 20px;
+   display:flex;justify-content:space-between;align-items:center;gap:10px}
+ .phead .ip{font-size:1.1rem;font-weight:700}
+ .pclose{background:none;border:1px solid var(--line2);color:var(--muted);width:30px;height:30px;
+   border-radius:8px;cursor:pointer;font-size:1.05rem;flex-shrink:0}
+ .pclose:hover{border-color:var(--red);color:var(--red)}
+ .pbody{padding:16px 20px 60px}
+ .psec{margin-bottom:18px}
+ .psec h4{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);
+   margin-bottom:8px}
+ .term{background:#05080f;border:1px solid var(--line);border-radius:9px;padding:12px 14px;
+   font-family:'JetBrains Mono',monospace;font-size:.8rem;white-space:pre-wrap;word-break:break-word;
+   max-height:340px;overflow-y:auto}
+ .term .cmd{color:var(--mint)}
+ .term .read{color:var(--amber)}
+ .term .dl{color:var(--red)}
+ .facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px}
+ .fact{background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+ .fact .k{font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+ .fact .v{font-family:'JetBrains Mono',monospace;font-weight:700;margin-top:2px;word-break:break-all}
+ .cred{font-family:'JetBrains Mono',monospace;font-size:.82rem;padding:5px 0;
+   border-bottom:1px solid var(--line)}
+ .cred b{color:var(--cyan)}
+ .dim{color:var(--muted);font-size:.78rem}
+ .who{font-size:.75rem;font-weight:600;cursor:help;border-bottom:1px dotted transparent}
+ .who.att2{color:var(--red);border-bottom-color:rgba(251,113,133,.5)}
+ .who.att1{color:var(--amber);border-bottom-color:rgba(251,191,36,.5)}
+ .who.att0{color:var(--muted)}
+
+ /* --- upgrade: threat analysis, tags, graffiti wall --- */
+ .threat{border-color:rgba(167,139,250,.32)}
+ .threatgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:18px}
+ .minih{font-size:.68rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:8px}
+ .bar{display:flex;align-items:center;gap:8px;font-size:.8rem;margin-bottom:6px}
+ .bar .lab{width:96px;flex-shrink:0;color:var(--muted);font-size:.73rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .bar .track{flex:1;height:8px;background:rgba(255,255,255,.06);border-radius:5px;overflow:hidden}
+ .bar .fill{height:100%;border-radius:5px;min-width:2px}
+ .bar .cnt{font-family:'JetBrains Mono',monospace;font-size:.76rem;width:24px;text-align:right}
+ .chips{display:flex;flex-wrap:wrap;gap:6px}
+ .chip{display:inline-flex;align-items:center;gap:5px;font-size:.69rem;padding:3px 8px;border-radius:7px;
+   border:1px solid var(--line2);font-family:'JetBrains Mono',monospace;cursor:help}
+ .chip .tid{font-weight:700}
+ .tagpill{display:inline-block;font-size:.62rem;font-weight:700;padding:1px 6px;border-radius:5px;
+   letter-spacing:.03em;font-family:'JetBrains Mono',monospace;vertical-align:middle;border:1px solid transparent}
+ .sev-critical{background:rgba(251,113,133,.18);color:#FB7185;border-color:rgba(251,113,133,.45)}
+ .sev-high{background:rgba(251,146,60,.18);color:#FDBA74;border-color:rgba(251,146,60,.45)}
+ .sev-medium{background:rgba(251,191,36,.15);color:#FBBF24;border-color:rgba(251,191,36,.42)}
+ .sev-low{background:rgba(34,211,238,.13);color:#22D3EE;border-color:rgba(34,211,238,.38)}
+ .sev-info{background:rgba(147,164,191,.12);color:#93A4BF;border-color:var(--line2)}
+ .graf{background:rgba(167,139,250,.06);border:1px solid rgba(167,139,250,.25);
+   border-left:3px solid var(--violet);border-radius:8px;padding:9px 12px;margin-bottom:8px}
+ .graf .q{font-family:'JetBrains Mono',monospace;font-size:.85rem;color:#DDD6FE;word-break:break-word}
+ .graf .m{color:var(--muted);font-size:.72rem;margin-top:3px}
+ .verdict{border-radius:11px;padding:13px 15px;margin-bottom:16px}
+ .verdict .vh{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:6px}
+ .verdict .actor{font-weight:700;font-size:1.02rem;color:var(--text)}
+ .verdict .score{font-family:'JetBrains Mono',monospace;font-weight:700;margin-left:auto;font-size:1.2rem;color:var(--text)}
+ .verdict .why{font-size:.83rem;color:var(--muted)}
+ .chain{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin-top:10px}
+ .chain .st{font-size:.66rem;padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.06);
+   border:1px solid var(--line2);color:var(--text)}
+ .chain .ar{color:var(--muted);font-size:.7rem}
+ .hl{font-size:.83rem;padding:4px 0 4px 17px;position:relative}
+ .hl:before{content:"\25B8";position:absolute;left:0;color:var(--violet)}
+ .pill.ssh{background:rgba(167,139,250,.16);color:var(--violet)}
+ .pill.smtp,.pill.ftp,.pill.telnet,.pill.console{background:rgba(147,164,191,.14);color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">angler<b>fish</b> console</div>
+    <div class="live"><i></i><span id="liveLabel">watching</span></div>
+  </header>
+
+  <div class="note">
+    This is your own sensors reporting to you. Nothing here reaches into an attacker's machine:
+    the sensors record what was done to them, and the canary tokens call home when the bait you
+    planted gets used. Reports only ever flow one way, inward.
+  </div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="card threat" id="threatCard" style="display:none">
+    <h2>Threat analysis &nbsp;<span class="tagpill" id="avgScore"></span></h2>
+    <p class="sub">Every recorded movement tagged to MITRE ATT&amp;CK, scored, and
+      sorted into who did it. Read-only: the console analyses what the sensors
+      already captured &mdash; it reaches nothing and re-runs nothing.</p>
+    <div class="threatgrid">
+      <div><div class="minih">Who came knocking</div><div id="actors"></div></div>
+      <div><div class="minih">Session severity</div><div id="sevbars"></div></div>
+      <div><div class="minih">ATT&amp;CK tactics seen</div><div id="tactics"></div></div>
+    </div>
+    <div class="minih" style="margin-top:15px">ATT&amp;CK techniques observed (hover for detail)</div>
+    <div id="coverage" class="chips"></div>
+  </div>
+
+  <div class="card" id="triggerCard" style="display:none">
+    <h2>Bait that was used</h2>
+    <p class="sub">A fake secret you planted was just used somewhere. This is the part worth
+      watching: it means an attacker took the bait and acted on it.</p>
+    <div id="triggers"></div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Sessions</h2>
+      <p class="sub">Everyone who came through a door. Click one to see exactly what they did.</p>
+      <table>
+        <thead><tr><th>When</th><th>From</th><th>Sensor</th><th>How</th>
+          <th class="num">Cmds</th><th class="num">Took</th></tr></thead>
+        <tbody id="sessions"></tbody>
+      </table>
+      <div class="empty" id="noSessions" style="display:none">
+        No sessions yet. Point a sensor at this console and wait for a knock.</div>
+    </div>
+
+    <div>
+      <div class="card">
+        <h2>Busiest sources</h2>
+        <p class="sub">The addresses that came back most.</p>
+        <table>
+          <thead><tr><th>Address</th><th class="num">Visits</th><th class="num">Cmds</th>
+            <th>Who is it</th></tr></thead>
+          <tbody id="attackers"></tbody>
+        </table>
+        <div class="empty" id="noAttackers" style="display:none">Nothing yet.</div>
+      </div>
+      <div class="card">
+        <h2>Sensors</h2>
+        <p class="sub">Your deployed doors.</p>
+        <table>
+          <thead><tr><th>Name</th><th>Host</th><th>Last heard</th></tr></thead>
+          <tbody id="sensors"></tbody>
+        </table>
+        <div class="empty" id="noSensors" style="display:none">No sensors have reported in.</div>
+      </div>
+      <div class="card">
+        <h2>Graffiti wall &mdash; &ldquo;I was here&rdquo;</h2>
+        <p class="sub">Notes threat actors left on the decoy. Logged here with their
+          IP; shown to the next visitor without it.</p>
+        <div id="graffiti"></div>
+        <div class="empty" id="noGraffiti" style="display:none">Nobody has signed yet.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="backdrop" id="backdrop"></div>
+<aside class="panel" id="panel">
+  <div class="phead">
+    <div><div class="ip" id="pIp">-</div><div style="font-size:.76rem;color:var(--muted)" id="pSub"></div></div>
+    <button class="pclose" id="pClose">&times;</button>
+  </div>
+  <div class="pbody" id="pBody"></div>
+</aside>
+
+<script>
+const el = id => document.getElementById(id);
+const fmt = n => (n===null||n===undefined) ? "0" : Number(n).toLocaleString("en-US");
+
+// A honeypot session is already proof of somebody doing what they should not.
+// What the databases add is the one thing the session cannot say: whether this
+// address knocks on every door on the internet, or whether it came looking for
+// you. The colour follows that, not "bad or good", so an address nobody has
+// ever seen reads louder than a known scanner. It is the one to open first.
+function whoIsIt(rep){
+  if (!rep) return "<span class='dim'>not checked</span>";
+  const cls = rep.attention >= 2 ? "att2" : (rep.attention === 1 ? "att1" : "att0");
+  return "<span class='who "+cls+"' title='"+esc(rep.sentence)+"'>"
+       + esc(rep.headline) + "</span>";
+}
+const esc = s => String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;")
+  .replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+const when = t => t ? new Date(t*1000).toLocaleString("en-GB",{hour12:false,
+  day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}) : "-";
+const ago = t => {
+  if(!t) return "-";
+  const s = Date.now()/1000 - t;
+  if(s < 60) return Math.round(s)+"s ago";
+  if(s < 3600) return Math.round(s/60)+"m ago";
+  if(s < 86400) return Math.round(s/3600)+"h ago";
+  return Math.round(s/86400)+"d ago";
+};
+
+async function load(){
+  let data;
+  try { data = await (await fetch("/api/overview",{cache:"no-store"})).json(); }
+  catch(e){ el("liveLabel").textContent = "console not answering"; return; }
+  el("liveLabel").textContent = "watching " + data.counts.sensors + " sensor"
+    + (data.counts.sensors===1?"":"s");
+
+  const c = data.counts;
+  el("kpis").innerHTML = [
+    ["cy", c.sessions, "sessions"],
+    ["mi", c.attackers, "distinct sources"],
+    ["vi", c.credentials, "logins captured"],
+    ["am", c.sessions_today, "in the last day"],
+    ["red", c.triggers, "bait used"],
+  ].map(([cls,n,l]) => "<div class='kpi "+cls+"'><div class='n'>"+fmt(n)
+    +"</div><div class='l'>"+l+"</div></div>").join("");
+
+  const triggers = data.recent_triggers || [];
+  el("triggerCard").style.display = triggers.length ? "" : "none";
+  el("triggers").innerHTML = triggers.map(t =>
+    "<div class='trigger'><b>"+esc(t.label||t.token_id)+"</b> was used from "
+    + "<span class='ip'>"+esc(t.source_ip)+"</span>"
+    + "<div class='when'>"+when(t.at)+" &middot; planted on "+esc(t.sensor||"?")+"</div></div>").join("");
+
+  const sessions = data.recent_sessions || [];
+  el("noSessions").style.display = sessions.length ? "none" : "";
+  el("sessions").innerHTML = sessions.map(s =>
+    "<tr data-id='"+esc(s.id)+"'><td>"+when(s.started)+"</td>"
+    +"<td class='ip'>"+esc(s.peer_ip)+"</td><td>"+esc(s.sensor)+"</td>"
+    +"<td><span class='pill "+esc(s.protocol)+"'>"+esc(s.protocol)+"</span></td>"
+    +"<td class='num'>"+fmt(s.commands)+"</td><td class='num'>"+fmt(s.read_files)+"</td></tr>").join("");
+
+  const attackers = data.top_attackers || [];
+  el("noAttackers").style.display = attackers.length ? "none" : "";
+  el("attackers").innerHTML = attackers.map(a =>
+    "<tr data-ip='"+esc(a.peer_ip)+"'><td class='ip'>"+esc(a.peer_ip)+"</td>"
+    +"<td class='num'>"+fmt(a.sessions)+"</td><td class='num'>"+fmt(a.commands)+"</td>"
+    +"<td>"+whoIsIt(a.reputation)+"</td></tr>").join("");
+
+  const sensors = data.sensors || [];
+  el("noSensors").style.display = sensors.length ? "none" : "";
+  el("sensors").innerHTML = sensors.map(s =>
+    "<tr><td>"+esc(s.name)+"</td><td class='mono' style='color:var(--muted);font-size:.78rem'>"
+    +esc(s.hostname||"-")+"</td><td style='color:var(--muted)'>"+ago(s.last_seen)+"</td></tr>").join("");
+
+  let an = null;
+  try { an = await (await fetch("/api/analysis",{cache:"no-store"})).json(); } catch(e){}
+  if(an && an.totals) renderThreat(an);
+}
+
+const SEV = ["critical","high","medium","low","info"];
+const SEVCOLOR = {critical:"#FB7185",high:"#FB923C",medium:"#FBBF24",low:"#22D3EE",info:"#6B7A90"};
+function scoreClass(x){ return x>=60?"sev-critical":x>=30?"sev-high":x>=12?"sev-medium":x>=4?"sev-low":"sev-info"; }
+function bar(lab,v,max,color){
+  const pct = Math.round(100*v/(max||1));
+  return "<div class='bar'><div class='lab'>"+esc(lab)+"</div><div class='track'>"
+    +"<div class='fill' style='width:"+pct+"%;background:"+color+"'></div></div>"
+    +"<div class='cnt'>"+fmt(v)+"</div></div>";
+}
+function renderThreat(an){
+  el("threatCard").style.display = "";
+  const t = an.totals;
+  const sp = el("avgScore");
+  sp.className = "tagpill "+scoreClass(t.avg_score);
+  sp.textContent = "avg threat "+t.avg_score+"/100  \u00b7  "+t.techniques+" techniques  \u00b7  "+t.tactics+" tactics";
+
+  const actors = Object.entries(an.by_actor||{}).sort((a,b)=>b[1]-a[1]);
+  const amax = Math.max(1,...actors.map(x=>x[1]));
+  el("actors").innerHTML = actors.map(([k,v]) => bar(k,v,amax,"var(--violet)")).join("")
+    || "<div class='dim'>none</div>";
+
+  const smax = Math.max(1,...SEV.map(x=>(an.by_severity||{})[x]||0));
+  el("sevbars").innerHTML = SEV.map(x => bar(x,(an.by_severity||{})[x]||0,smax,SEVCOLOR[x])).join("");
+
+  const tc = an.tactics||[]; const tmax = Math.max(1,...tc.map(x=>x.count));
+  el("tactics").innerHTML = tc.map(x => bar(x.tactic,x.count,tmax,"var(--cyan)")).join("")
+    || "<div class='dim'>none</div>";
+
+  el("coverage").innerHTML = (an.attack_coverage||[]).map(c =>
+    "<span class='chip sev-"+esc(c.severity)+"' title='"+esc(c.tactic+" / "+c.technique
+      +"  ("+c.sessions+" session(s))")+"'><span class='tid'>"+esc(c.technique_id)+"</span> "
+    + esc(c.technique.split(":")[0]) + "</span>").join("");
+
+  const g = an.graffiti_wall||[];
+  el("noGraffiti").style.display = g.length ? "none" : "";
+  el("graffiti").innerHTML = g.map(x =>
+    "<div class='graf'><div class='q'>&ldquo;"+esc(x.note)+"&rdquo;</div>"
+    +"<div class='m'><span class='ip'>"+esc(x.peer_ip)+"</span> &middot; "+when(x.at)
+    +" &middot; "+esc(x.sensor)+"</div></div>").join("");
+}
+
+async function openSession(id){
+  el("panel").classList.add("on"); el("backdrop").classList.add("on");
+  el("pBody").innerHTML = "<div class='empty'>loading...</div>";
+  let s;
+  try { s = await (await fetch("/api/session/"+encodeURIComponent(id))).json(); }
+  catch(e){ el("pBody").innerHTML = "<div class='empty'>could not load it</div>"; return; }
+  if(s.error){ el("pBody").innerHTML = "<div class='empty'>"+esc(s.error)+"</div>"; return; }
+
+  el("pIp").textContent = s.peer_ip;
+  el("pSub").innerHTML = "<span class='pill "+esc(s.protocol)+"'>"+esc(s.protocol)+"</span> "
+    + "on port "+esc(s.local_port)+" &middot; "+esc(s.sensor)+" &middot; "+when(s.started);
+
+  const parts = [];
+  const a = s.analysis || {};
+  if(a.actor){
+    let v = "<div class='verdict sev-"+esc(a.severity||"info")+"'><div class='vh'>"
+      + "<span class='actor'>"+esc(a.actor)+"</span>"
+      + "<span class='tagpill sev-"+esc(a.severity||"info")+"'>"+esc(a.severity||"info")+"</span>"
+      + "<span class='score'>"+(a.score||0)+"<span style='font-size:.6em;color:var(--muted)'> /100</span></span>"
+      + "</div><div class='why'>"+esc(a.actor_why||"")+"</div>";
+    if((a.kill_chain||[]).length)
+      v += "<div class='chain'>"+a.kill_chain.map((x,i)=>(i?"<span class='ar'>&rarr;</span>":"")
+        +"<span class='st'>"+esc(x)+"</span>").join("")+"</div>";
+    v += "</div>";
+    parts.push(v);
+    if((a.highlights||[]).length)
+      parts.push("<div class='psec'><h4>what matters here</h4>"
+        + a.highlights.map(h=>"<div class='hl'>"+esc(h)+"</div>").join("")+"</div>");
+  }
+  parts.push("<div class='psec'><h4>what happened</h4><div class='facts'>"
+    + fact("commands", (s.commands||[]).length)
+    + fact("files taken", (s.read_files||[]).length)
+    + fact("logins tried", (s.credentials||[]).length)
+    + fact("lasted", (s.duration||0)+"s")
+    + "</div></div>");
+
+  if((s.credentials||[]).length){
+    parts.push("<div class='psec'><h4>logins they tried</h4>"
+      + s.credentials.map(c => "<div class='cred'>"
+        + (c.username!==undefined ? "<b>"+esc(c.username)+"</b> / "+esc(c.password)
+           : esc(c.raw||""))
+        + " <span style='color:var(--muted)'>("+esc(c.service||"")+")</span></div>").join("")
+      + "</div>");
+  }
+
+  if((a.techniques||[]).length)
+    parts.push("<div class='psec'><h4>ATT&CK techniques</h4><div class='chips'>"
+      + a.techniques.map(c => "<span class='chip sev-"+esc(c.severity)+"' title='"
+        + esc(c.tactic+" / "+c.technique)+"'><span class='tid'>"+esc(c.technique_id)
+        + "</span> "+esc(c.tactic)+"</span>").join("") + "</div></div>");
+
+  // A replay of the session as a terminal, with each move tagged to ATT&CK.
+  const tagmap = {};
+  (a.tagged_events||[]).forEach(ev => { tagmap[ev.at+"|"+ev.kind+"|"+ev.detail] = ev.tag; });
+  const lines = (s.events||[]).map(ev => {
+    let base;
+    if(ev.kind==="command") base = "<span class='cmd'>$ "+esc(ev.detail)+"</span>";
+    else if(ev.kind==="read-file") base = "<span class='read'>  read "+esc(ev.detail)+"</span>";
+    else if(ev.kind==="download-attempt") base = "<span class='dl'>  tried to fetch: "+esc(ev.detail)+"</span>";
+    else if(ev.kind==="gotcha") base = "<span class='dl'>  GOTCHA  "+esc(ev.detail)+"</span>";
+    else if(ev.kind==="guestbook") base = "<span style='color:var(--violet)'>  signed guestbook: "+esc(ev.detail)+"</span>";
+    else if(ev.kind==="login-user") base = "login: "+esc(ev.detail);
+    else if(ev.kind==="login-pass") base = "password: "+esc(ev.detail);
+    else if(ev.kind==="login-result") base = "  &rarr; login "+esc(ev.detail);
+    else if(ev.kind==="http") base = "<span class='cmd'>"+esc(ev.detail)+"</span>";
+    else if(ev.kind==="http-post") base = "  posted: "+esc(ev.detail);
+    else base = "  "+esc(ev.kind)+": "+esc(ev.detail);
+    const tag = tagmap[ev.at+"|"+ev.kind+"|"+ev.detail];
+    if(tag) base += " <span class='tagpill sev-"+esc(tag.severity)+"' title='"
+      + esc(tag.tactic+" / "+tag.technique)+"'>"+esc(tag.technique_id)+"</span>";
+    return base;
+  });
+  if(lines.length)
+    parts.push("<div class='psec'><h4>the session, replayed</h4><div class='term'>"
+      + lines.join("\n") + "</div></div>");
+
+  if((s.read_files||[]).length)
+    parts.push("<div class='psec'><h4>bait they took</h4><div class='term'>"
+      + s.read_files.map(esc).join("\n") + "</div></div>");
+
+  el("pBody").innerHTML = parts.join("");
+}
+
+function fact(k,v){ return "<div class='fact'><div class='k'>"+esc(k)+"</div><div class='v'>"
+  +esc(v)+"</div></div>"; }
+function closePanel(){ el("panel").classList.remove("on"); el("backdrop").classList.remove("on"); }
+
+document.body.addEventListener("click", e => {
+  const row = e.target.closest("tr[data-id]");
+  if(row) openSession(row.dataset.id);
+});
+el("pClose").onclick = closePanel;
+el("backdrop").onclick = closePanel;
+document.addEventListener("keydown", e => { if(e.key==="Escape") closePanel(); });
+
+load();
+setInterval(load, 4000);
+</script>
+</body>
+</html>

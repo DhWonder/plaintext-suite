@@ -1,0 +1,31 @@
+# Runtime / local state
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+.anglerfish/
+*.log
+*.db
+
+# Operator persona + secrets — NEVER commit a live persona
+config/persona.yaml
+config/persona.local.yaml
+**/persona.json
+**/tls-cert.pem
+**/tls-key.pem
+**/*.pem
+**/*.key
+!config/persona.example.yaml
+
+# Deploy / cloud leftovers
+deploy/aws/*.tfstate*
+deploy/aws/.terraform/
+*.tgz
+*.tar.gz
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

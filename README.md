@@ -66,6 +66,12 @@ there is no reason to run them.
 The Python tools need no dependencies beyond the standard library. Each folder's
 README has the exact command. `system-checker` builds with `make`.
 
+## How this was built
+
+Written with help from Claude and Grok. They drafted code and first drafts of
+the docs. Every design decision, test run, and deployment was mine, and nothing
+went in unread.
+
 ## License
 
 MIT, all of it. Use it, change it, ship it. No strings.

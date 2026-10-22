@@ -17,6 +17,16 @@ Usage:
     python3 domain_checker.py example.com
     python3 domain_checker.py example.com --reputation
     python3 domain_checker.py example.com --notify
+    python3 domain_checker.py example.com --dkim-selector myselector
+
+It probes a short list of common DKIM selectors (Google, Microsoft 365,
+SendGrid, Mailchimp and the usual self-hosted names). A selector it does not
+know can be added with --dkim-selector NAME (repeatable, or comma-separated);
+a clean sweep is reported as "none of the common ones", never a false "no DKIM".
+
+This tool only reads DNS and never sends mail. To safely DEMONSTRATE the
+impact of a missing DMARC/DKIM record to a domain owner you are authorised to
+test, see the companion red-team tool "spoof-proof" in this repo.
 
 It looks up public DNS records using an encrypted DNS-over-HTTPS request
 to a public resolver, so it works on any machine with internet and needs
@@ -57,6 +67,23 @@ import reputation
 # reads, just fetched in a way that works everywhere.
 DOH_URL = "https://dns.google/resolve"
 TIMEOUT = 15
+
+# DKIM public keys live at "<selector>._domainkey.<domain>", but the selector
+# name is chosen by whoever set up the mail and cannot be derived from the
+# domain. We cannot enumerate every selector, but the big mail providers and
+# most small-business setups use a short, well-known set, so probing these
+# turns "cannot check DKIM" into "found DKIM on selector1" most of the time.
+# This list is not exhaustive: a miss means "none of these", not "no DKIM".
+COMMON_DKIM_SELECTORS = [
+    "google",                 # Google Workspace
+    "selector1", "selector2", # Microsoft 365 / Outlook
+    "default",                # generic / self-hosted, mail servers
+    "k1",                     # Mailchimp / Mandrill
+    "s1", "s2",               # SendGrid and others
+    "mail",                   # common self-hosted
+    "dkim",                   # common self-hosted
+    "cm",                     # Campaign Monitor
+]
 
 
 def dns_txt(name):
@@ -124,13 +151,74 @@ def check_dmarc(domain):
     return ("weak", "DMARC exists but its policy is unclear. Worth a proper look.")
 
 
-def check_dkim_hint(domain):
-    """DKIM keys live at selector names we can't guess reliably, so we
-    don't claim a false negative - we just note how to confirm it."""
-    return ("info",
-            "DKIM (which cryptographically signs your outgoing mail) can't be checked "
-            "without knowing your mail provider's selector name. Confirm it inside your "
-            "Google Workspace / Microsoft 365 admin panel - I do this during setup.")
+def dkim_selectors(options):
+    """The selectors to probe: the common set, plus any the operator names.
+
+    --dkim-selector may be given more than once, or as a comma-separated list,
+    so a known provider selector can be added without editing the code."""
+    extra = options.get("dkim-selector") or options.get("dkim_selector")
+    selectors = list(COMMON_DKIM_SELECTORS)
+    if isinstance(extra, str):
+        for name in extra.replace(",", " ").split():
+            name = name.strip()
+            if name and name not in selectors:
+                selectors.append(name)
+    return selectors
+
+
+def probe_dkim_selector(domain, selector):
+    """Look up one DKIM selector. Returns the record text, or '' if absent.
+
+    A real DKIM record is a TXT at "<selector>._domainkey.<domain>" that names
+    a key (v=DKIM1 and/or a p= public key). We keep only records that look
+    like DKIM, so an unrelated TXT at that name is not mistaken for a key."""
+    name = "%s._domainkey.%s" % (selector, domain)
+    try:
+        records = dns_txt(name)
+    except Exception:
+        return ""
+    for record in records:
+        low = record.lower()
+        if "v=dkim1" not in low and "k=rsa" not in low and "p=" not in low:
+            continue
+        # The key itself lives in the p= tag. An empty p= means the key was
+        # revoked (RFC 6376) - the selector exists but signs nothing - and
+        # some domains publish a wildcard empty key to say exactly that, so we
+        # must not count it as a working signature.
+        key = ""
+        for tag in record.replace(";", " ").split():
+            if tag.lower().startswith("p="):
+                key = tag[2:].strip()
+        if key:
+            return record
+    return ""
+
+
+def check_dkim(domain, options):
+    """Probe the common DKIM selectors and report what signs this domain's mail.
+
+    DKIM cryptographically signs outgoing mail; without it DMARC has only SPF
+    to lean on, and SPF alone breaks the moment mail is forwarded. We cannot
+    enumerate every selector, so a clean sweep is reported as a caveated
+    'none of the common ones', never a false 'no DKIM'."""
+    selectors = dkim_selectors(options)
+    found = []
+    for selector in selectors:
+        record = probe_dkim_selector(domain, selector)
+        if record:
+            found.append(selector)
+    if found:
+        shown = ", ".join(found)
+        return ("good",
+                "DKIM key found on selector(s): %s. Outgoing mail from those "
+                "systems is cryptographically signed, which is what lets DMARC "
+                "tell a real message from a forgery." % shown, found)
+    return ("missing",
+            "No DKIM key on any of the %d common selectors probed (%s). That is "
+            "not proof of none - a custom selector would be missed - but it means "
+            "no mainstream provider signature was found, so DMARC has only SPF to "
+            "rely on, and SPF alone fails the moment a message is forwarded."
+            % (len(selectors), ", ".join(selectors)), found)
 
 
 def line(status, label, msg):
@@ -145,7 +233,7 @@ def parse_options(args):
     index = 0
     while index < len(args):
         item = args[index]
-        if item in ("--notify-config", "--vt-key"):
+        if item in ("--notify-config", "--vt-key", "--dkim-selector"):
             options[item.lstrip("-")] = args[index + 1] if index + 1 < len(args) else ""
             index += 2
             continue
@@ -239,7 +327,7 @@ def main():
 
     spf_status, spf_msg = check_spf(domain)
     dmarc_status, dmarc_msg = check_dmarc(domain)
-    dkim_status, dkim_msg = check_dkim_hint(domain)
+    dkim_status, dkim_msg, dkim_found = check_dkim(domain, options)
 
     line(spf_status, "SPF  ", spf_msg)
     line(dmarc_status, "DMARC", dmarc_msg)
@@ -267,13 +355,14 @@ def main():
                       ["SPF:   %s" % spf_msg, "", "DMARC: %s" % dmarc_msg], options)
         sys.exit(1)
     # Verdict weighted mostly on DMARC, since it's what actually blocks fakes.
-    if spf_status == "good" and dmarc_status == "good":
+    if spf_status == "good" and dmarc_status == "good" and dkim_status == "good":
         print("Verdict: well protected. It's genuinely hard to forge mail from this domain.")
         # Nothing is emailed here. An all-clear that arrives every week is an
         # email you learn to delete unread, and then you delete the real one too.
         sys.exit(0)
 
-    findings = ["SPF:   %s" % spf_msg, "", "DMARC: %s" % dmarc_msg, ""]
+    findings = ["SPF:   %s" % spf_msg, "", "DMARC: %s" % dmarc_msg, "",
+                "DKIM:  %s" % dkim_msg, ""]
     if dmarc_status == "missing" or spf_status in ("missing", "bad"):
         print("Verdict: EXPOSED. Someone could send email as this business today, and")
         print("the owner would never know. This is a fast, high-value fix - exactly the")
@@ -284,6 +373,9 @@ def main():
     else:
         print("Verdict: partly protected. The pieces are started but not finished -")
         print("tightening them to reject fakes is a quick, worthwhile job.")
+        if dkim_status == "missing":
+            print("No DKIM signature was found on the common selectors either, so a")
+            print("confirmed selector (or adding DKIM) would strengthen this further.")
         findings.append("The pieces are started but not finished. Tightening them to")
         findings.append("reject fakes is a quick, worthwhile job.")
         verdict = "partly protected"

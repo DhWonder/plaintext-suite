@@ -14,7 +14,7 @@ Linux machine either has or can get in one command.
 |---|---|
 | **traffic-analyzer** | Is somebody attacking this network, and are my sites up with valid certificates? Reads captures, watches a card live, checks websites. |
 | **email-checker** | Somebody forwards you a message and asks "is this real?". Is the wording a scam, is the attachment safe to open, can the sender's domain be forged, and separately, is this password weak or this address already in a breach? Everything `accounts-checker` and `file-checker` used to answer, in one verdict. Reads `.eml` through to Outlook `.msg`, and the message never leaves the machine. |
-| **domain-checker** | Could somebody send email pretending to be this business? Checks SPF and DMARC. It cannot check DKIM without the mail provider's selector, and it says so. |
+| **domain-checker** | Could somebody send email pretending to be this business? Checks SPF, DMARC, and probes a list of common DKIM selectors (reporting a clean sweep honestly as "none of these", since a custom selector can't be derived). See also [spoof-proof](https://github.com/DhWonder/redline-suite/tree/main/tools/spoof-proof), the red-team demo companion. |
 | **anglerfish** | Who is poking around, and did they take the bait? A deception honeypot (NAS/SSH/FTP/mail persona) with off-host logs and a critical alert when planted bait is opened. |
 | **backup-checker** | Did the backup run, and would a restore actually work? Includes a drill that pulls a real file back. |
 | **system-checker** | What is this machine - make, processor, memory, graphics, disks, real or virtual - and is anything wrong with it? Written in C for Linux and PowerShell for Windows, with a wrapper that emails you when it finds something. |

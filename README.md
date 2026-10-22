@@ -25,7 +25,7 @@ limitations written down.
 | [exposure-checker](tools/exposure-checker) | C | What can reach this machine, and what is behind each door. Names the program holding every open port, tells a loopback service apart from a genuinely open one, and says whether "every network" includes the internet. Reads `/proc`; scans nothing. |
 | [iot-recon](tools/iot-recon) | Python | Authorized IoT assessment: finds a smart device's ports, services and UPnP details, matches known CVEs from an offline database, and names the most likely way each device gets owned. Acts only on targets you name; everything intrusive is opt-in. |
 
-Eight of the eleven can email you when they find something, which is the difference between
+Most of them can email you when they find something, which is the difference between
 a tool that answers a question and one that watches for you. It is off
 until you set it up and ask for it, it goes through your own mail server, and
 [`tools/notifications`](tools/notifications) says exactly what ends up in the
